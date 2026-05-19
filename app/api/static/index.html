@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>raw-curator — review</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body, #root { height: 100%; background: #0a0a0a; color: #e5e5e5; }
+    .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+           font-size: 0.7rem; padding: 0.1rem 0.35rem;
+           border: 1px solid #404040; border-radius: 4px; background: #1a1a1a; }
+    .photo-tile { transition: transform 0.12s; }
+    .photo-tile:hover { transform: scale(1.02); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="module">
+    import React, { useState, useEffect, useCallback, useMemo } from "https://esm.sh/react@18.3.1";
+    import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+    import htm from "https://esm.sh/htm@3.1.1";
+
+    const html = htm.bind(React.createElement);
+    const { Fragment } = React;
+
+    // ---------- API client ----------
+    const api = {
+      queue: async (sort = "score") => {
+        const r = await fetch(`/api/queue/?sort=${sort}`);
+        if (!r.ok) throw new Error(`queue ${r.status}`);
+        return r.json();
+      },
+      photo: async (hash) => {
+        const r = await fetch(`/api/photo/${hash}`);
+        if (!r.ok) throw new Error(`photo ${r.status}`);
+        return r.json();
+      },
+      decide: async (body) => {
+        const r = await fetch(`/api/decide/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(`decide ${r.status}`);
+        return r.json();
+      },
+      pending: async () => {
+        const r = await fetch(`/api/decide/pending`);
+        if (!r.ok) throw new Error(`pending ${r.status}`);
+        return r.json();
+      },
+      submit: async () => {
+        const r = await fetch(`/api/submit/`, { method: "POST" });
+        if (!r.ok) throw new Error(`submit ${r.status}`);
+        return r.json();
+      },
+    };
+
+    // ---------- Hooks ----------
+    function useQuery(fetcher, deps) {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const refetch = useCallback(async () => {
+        setLoading(true); setError(null);
+        try { setData(await fetcher()); }
+        catch (e) { setError(e); }
+        finally { setLoading(false); }
+      }, deps);
+      useEffect(() => { refetch(); }, [refetch]);
+      return { data, error, loading, refetch };
+    }
+
+    function useKeyboardShortcuts(handlers) {
+      useEffect(() => {
+        const onKey = (e) => {
+          if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+          const h = handlers[e.key];
+          if (h) { e.preventDefault(); h(e); }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+      }, [handlers]);
+    }
+
+    // ---------- Components ----------
+    function Stars({ value }) {
+      const n = value || 0;
+      return html`<span class="text-amber-400 tracking-tight">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>`;
+    }
+
+    function DecisionBadge({ decision }) {
+      if (!decision || decision.selected === "undecided") return null;
+      const s = decision.selected;
+      const color = s === "yes" ? "bg-emerald-700" : s === "no" ? "bg-rose-800" : "bg-zinc-700";
+      return html`<span class="${color} text-xs px-1.5 py-0.5 rounded">${s}</span>`;
+    }
+
+    function PhotoTile({ photo, onClick }) {
+      const score = photo.technical_score == null ? "—" : photo.technical_score.toFixed(2);
+      const aest = photo.aesthetic_score == null ? "—" : photo.aesthetic_score.toFixed(1);
+      return html`
+        <button
+          class="photo-tile relative group bg-zinc-900 rounded overflow-hidden text-left"
+          onClick=${onClick}>
+          <img src=${photo.thumb_url} alt=${photo.hash}
+               class="block w-full aspect-[3/2] object-cover" />
+          <div class="absolute top-1 left-1 flex gap-1">
+            ${photo.is_recommended && html`<span class="bg-amber-500/90 text-black text-xs px-1.5 py-0.5 rounded font-semibold">REC</span>`}
+            ${photo.decision?.applied && html`<span class="bg-blue-700 text-xs px-1.5 py-0.5 rounded">applied</span>`}
+            <${DecisionBadge} decision=${photo.decision} />
+          </div>
+          <div class="absolute top-1 right-1">
+            <${Stars} value=${photo.decision?.stars} />
+          </div>
+          <div class="absolute bottom-0 inset-x-0 px-2 py-1 bg-black/60 text-[11px] flex justify-between">
+            <span class="font-mono">${photo.hash.slice(0, 8)}</span>
+            <span>tech ${score} • aes ${aest}</span>
+          </div>
+        </button>`;
+    }
+
+    function PhotoGrid({ items, onSelect }) {
+      return html`
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 p-2">
+          ${items.map(p => html`<${PhotoTile} key=${p.hash} photo=${p} onClick=${() => onSelect(p.hash)} />`)}
+        </div>`;
+    }
+
+    function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
+      const { data, refetch } = useQuery(() => api.photo(hash), [hash]);
+
+      const mutate = useCallback(async (patch) => {
+        await api.decide({ photo_hash: hash, ...patch });
+        await refetch();
+        onMutated?.();
+      }, [hash, refetch, onMutated]);
+
+      useKeyboardShortcuts(useMemo(() => ({
+        Escape: onClose,
+        ArrowLeft: onPrev,
+        ArrowRight: onNext,
+        " ": onNext,
+        "1": () => mutate({ stars: 1 }),
+        "2": () => mutate({ stars: 2 }),
+        "3": () => mutate({ stars: 3 }),
+        "4": () => mutate({ stars: 4 }),
+        "5": () => mutate({ stars: 5 }),
+        "0": () => mutate({ stars: 0 }),
+        "y": () => mutate({ selected: "yes" }),
+        "n": () => mutate({ selected: "no" }),
+        "u": () => mutate({ selected: "undecided" }),
+        "f": () => mutate({ favorite: !data?.decision?.favorite }),
+        "e": () => mutate({ enhance_requested: !data?.decision?.enhance_requested }),
+      }), [mutate, data, onClose, onPrev, onNext]));
+
+      if (!data) return html`
+        <div class="fixed inset-0 bg-black/80 flex items-center justify-center">
+          <div class="text-zinc-400">loading…</div>
+        </div>`;
+
+      const d = data.decision;
+      const exif = `${data.camera_body ?? ""} • ISO ${data.iso ?? "?"} • 1/${data.shutter ? Math.round(1 / data.shutter) : "?"}s • f/${data.aperture ?? "?"} • ${data.focal_length ?? "?"}mm`;
+
+      return html`
+        <div class="fixed inset-0 bg-black/95 flex flex-col" role="dialog" aria-modal="true">
+          <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm">
+            <div class="flex items-center gap-3">
+              <button onClick=${onPrev} class="px-2 py-1 bg-zinc-800 rounded">←</button>
+              <button onClick=${onNext} class="px-2 py-1 bg-zinc-800 rounded">→</button>
+              <span class="font-mono text-zinc-400">${data.hash.slice(0, 10)}</span>
+              <span class="text-zinc-500">${exif}</span>
+            </div>
+            <button onClick=${onClose} class="px-3 py-1 bg-zinc-800 rounded">close (esc)</button>
+          </div>
+
+          <div class="flex-1 flex items-center justify-center overflow-hidden p-4">
+            <img src=${data.preview_url} alt=${data.hash}
+                 class="max-h-full max-w-full object-contain" />
+          </div>
+
+          <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">scores</div>
+              <div>aesthetic: <span class="text-zinc-100">${data.aesthetic_score?.toFixed(2) ?? "—"}</span></div>
+              <div>technical: <span class="text-zinc-100">${data.technical_score?.toFixed(2) ?? "—"}</span></div>
+              <div class="text-zinc-500">musiq ${data.musiq_score?.toFixed(1) ?? "—"} • maniqa ${data.maniqa_score?.toFixed(2) ?? "—"}</div>
+              <div class="text-zinc-500">blur var ${data.blur_var?.toFixed(0) ?? "—"} • ${data.faces?.length ?? 0} face(s)</div>
+            </div>
+
+            <div>
+              <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">decision</div>
+              <div class="flex gap-1.5 mb-2">
+                ${[1, 2, 3, 4, 5].map(n => html`
+                  <button key=${n}
+                    class="px-2 py-0.5 rounded border ${d?.stars >= n ? "bg-amber-500 text-black border-amber-500" : "border-zinc-700"}"
+                    onClick=${() => mutate({ stars: n })}>${n}★</button>`)}
+              </div>
+              <div class="flex gap-1.5 mb-2">
+                <button class="px-2 py-1 rounded ${d?.selected === "yes" ? "bg-emerald-700" : "bg-zinc-800"}"
+                        onClick=${() => mutate({ selected: "yes" })}>yes <span class="kbd">y</span></button>
+                <button class="px-2 py-1 rounded ${d?.selected === "no" ? "bg-rose-800" : "bg-zinc-800"}"
+                        onClick=${() => mutate({ selected: "no" })}>no <span class="kbd">n</span></button>
+                <button class="px-2 py-1 rounded ${(!d || d.selected === "undecided") ? "bg-zinc-600" : "bg-zinc-800"}"
+                        onClick=${() => mutate({ selected: "undecided" })}>undecided</button>
+              </div>
+              <div class="flex gap-1.5">
+                <button class="px-2 py-1 rounded ${d?.favorite ? "bg-pink-700" : "bg-zinc-800"}"
+                        onClick=${() => mutate({ favorite: !d?.favorite })}>★ favorite <span class="kbd">f</span></button>
+                <button class="px-2 py-1 rounded ${d?.enhance_requested ? "bg-violet-700" : "bg-zinc-800"}"
+                        onClick=${() => mutate({ enhance_requested: !d?.enhance_requested })}>enhance <span class="kbd">e</span></button>
+              </div>
+            </div>
+
+            <div class="text-xs text-zinc-500">
+              <div class="uppercase tracking-wider mb-1">shortcuts</div>
+              <div><span class="kbd">1-5</span> stars · <span class="kbd">y/n/u</span> select · <span class="kbd">f</span> fav · <span class="kbd">e</span> enhance</div>
+              <div><span class="kbd">←/→</span> nav · <span class="kbd">space</span> next · <span class="kbd">esc</span> close</div>
+              <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "yes" : "no"}</div>
+              <div>captured ${data.captured_at ?? "—"}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function Header({ count, pendingCount, sort, setSort, onSubmit, busy }) {
+      return html`
+        <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
+          <div class="flex items-baseline gap-4">
+            <h1 class="text-lg font-semibold">raw-curator</h1>
+            <span class="text-sm text-zinc-400">${count} photo${count === 1 ? "" : "s"}</span>
+            <span class="text-sm text-amber-400">${pendingCount} pending decision${pendingCount === 1 ? "" : "s"}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-zinc-500">sort</label>
+            <select value=${sort} onChange=${(e) => setSort(e.target.value)}
+                    class="bg-zinc-900 border border-zinc-800 text-sm rounded px-2 py-1">
+              <option value="score">score (technical)</option>
+              <option value="captured">captured</option>
+            </select>
+            <button onClick=${onSubmit} disabled=${busy || pendingCount === 0}
+                    class="px-3 py-1.5 rounded bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
+              ${busy ? "submitting…" : `submit batch (${pendingCount})`}
+            </button>
+          </div>
+        </div>`;
+    }
+
+    function App() {
+      const [sort, setSort] = useState("score");
+      const { data: items, refetch: refetchQueue } = useQuery(() => api.queue(sort), [sort]);
+      const { data: pending, refetch: refetchPending } = useQuery(() => api.pending(), []);
+      const [openHash, setOpenHash] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [status, setStatus] = useState(null);
+
+      const refreshAll = useCallback(() => {
+        refetchQueue();
+        refetchPending();
+      }, [refetchQueue, refetchPending]);
+
+      const openIndex = useMemo(
+        () => items?.findIndex(p => p.hash === openHash) ?? -1,
+        [items, openHash]
+      );
+      const next = useCallback(() => {
+        if (!items || items.length === 0) return;
+        const i = openIndex < 0 ? 0 : (openIndex + 1) % items.length;
+        setOpenHash(items[i].hash);
+      }, [items, openIndex]);
+      const prev = useCallback(() => {
+        if (!items || items.length === 0) return;
+        const i = openIndex <= 0 ? items.length - 1 : openIndex - 1;
+        setOpenHash(items[i].hash);
+      }, [items, openIndex]);
+
+      const onSubmit = useCallback(async () => {
+        if (!confirm(`Submit ${pending?.length ?? 0} pending decision(s)? This moves files on disk.`)) return;
+        setBusy(true);
+        try {
+          await api.submit();
+          setStatus("Submitted. Files have been moved.");
+          refreshAll();
+        } catch (e) {
+          setStatus(`Submit failed: ${e.message}`);
+        } finally {
+          setBusy(false);
+        }
+      }, [pending, refreshAll]);
+
+      useKeyboardShortcuts(useMemo(() => openHash ? {} : ({
+        Enter: () => items?.length && setOpenHash(items[0].hash),
+        s: () => onSubmit(),
+      }), [openHash, items, onSubmit]));
+
+      return html`
+        <${Fragment}>
+          <${Header} count=${items?.length ?? 0} pendingCount=${pending?.length ?? 0}
+                     sort=${sort} setSort=${setSort} onSubmit=${onSubmit} busy=${busy} />
+          ${status && html`<div class="px-4 py-1 text-xs bg-zinc-900 border-b border-zinc-800">${status}</div>`}
+          ${items
+            ? items.length === 0
+              ? html`<div class="p-8 text-zinc-500">No photos yet. Run <span class="kbd">make ingest</span>.</div>`
+              : html`<${PhotoGrid} items=${items} onSelect=${setOpenHash} />`
+            : html`<div class="p-8 text-zinc-500">loading…</div>`}
+          ${openHash && html`<${DetailModal} hash=${openHash}
+                              onClose=${() => setOpenHash(null)}
+                              onPrev=${prev} onNext=${next}
+                              onMutated=${refreshAll} />`}
+        </${Fragment}>`;
+    }
+
+    createRoot(document.getElementById("root")).render(html`<${App} />`);
+  </script>
+</body>
+</html>

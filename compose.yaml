@@ -1,0 +1,41 @@
+services:
+  app:
+    image: raw-curator:latest
+    build:
+      context: .
+      dockerfile: Containerfile
+    devices:
+      - nvidia.com/gpu=all
+    volumes:
+      - ./photos:/data/photos:z
+      - ./cache:/data/cache:z
+      - ./models:/data/models:z
+      - ./xmp:/data/xmp:z
+    working_dir: /app
+    environment:
+      - RAWCURATOR_CACHE=/data/cache
+      - RAWCURATOR_MODELS=/data/models
+      - RAWCURATOR_PHOTOS=/data/photos
+      - RAWCURATOR_XMP=/data/xmp
+
+  ui:
+    image: raw-curator:latest
+    depends_on:
+      - app
+    entrypoint: ["raw-curator"]
+    command: ["serve", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+    devices:
+      - nvidia.com/gpu=all
+    volumes:
+      - ./photos:/data/photos:z
+      - ./cache:/data/cache:z
+      - ./models:/data/models:z
+      - ./xmp:/data/xmp:z
+    working_dir: /app
+    environment:
+      - RAWCURATOR_CACHE=/data/cache
+      - RAWCURATOR_MODELS=/data/models
+      - RAWCURATOR_PHOTOS=/data/photos
+      - RAWCURATOR_XMP=/data/xmp
