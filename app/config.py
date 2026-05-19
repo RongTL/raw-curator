@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_cpu_workers() -> int:
+    """Default to the host's logical core count so ingest/filter/export
+    saturate all SMT threads. Falls back to 4 if the OS won't tell us."""
+    return os.cpu_count() or 4
 
 
 class Settings(BaseSettings):
@@ -22,7 +29,7 @@ class Settings(BaseSettings):
     models: Path = Field(default=Path("/data/models"))
     xmp: Path = Field(default=Path("/data/xmp"))
 
-    cpu_workers: int = 4
+    cpu_workers: int = Field(default_factory=_default_cpu_workers)
 
     preview_long_edge: int = 3000
     thumb_long_edge: int = 512

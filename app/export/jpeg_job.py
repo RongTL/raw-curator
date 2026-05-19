@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from rich.console import Console
@@ -13,6 +14,27 @@ from app.export.jpeg_writer import convert_image_to_jpeg, is_convertible
 
 log = logging.getLogger(__name__)
 console = Console()
+
+
+def _convert_one(
+    src_str: str, dest_str: str, quality: int, long_edge: int, progressive: bool
+) -> tuple[str, str | None]:
+    """Top-level worker so ProcessPoolExecutor can pickle it.
+
+    Returns (dest_name, error_message). error_message is None on success.
+    """
+    try:
+        convert_image_to_jpeg(
+            Path(src_str),
+            Path(dest_str),
+            quality=quality,
+            long_edge=long_edge,
+            progressive=progressive,
+        )
+        return (Path(dest_str).name, None)
+    except Exception as exc:  # noqa: BLE001 — keep the batch going
+        log.exception("export-jpeg failed for %s", src_str)
+        return (Path(src_str).name, str(exc))
 
 
 def _list_candidates(source: str) -> list[Path]:
@@ -63,32 +85,41 @@ def run_jpeg_export(
     out_dir = settings.photos / settings.jpeg_subdir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    converted = 0
+    todo: list[tuple[Path, Path]] = []
     skipped = 0
-    failed = 0
+    for src in items:
+        dest = _dest_for(src)
+        if dest.exists() and not overwrite:
+            skipped += 1
+            continue
+        todo.append((src, dest))
+
+    workers = max(1, settings.cpu_workers)
     console.print(
         f"[cyan]Exporting {len(items)} file(s) -> {out_dir} "
-        f"(quality={q}, long_edge={le or 'native'}).[/cyan]"
+        f"(quality={q}, long_edge={le or 'native'}, workers={workers}, "
+        f"skipping={skipped}).[/cyan]"
     )
+
+    converted = 0
+    failed = 0
     with Progress() as progress:
         task = progress.add_task("export-jpeg", total=len(items))
-        for src in items:
-            dest = _dest_for(src)
-            if dest.exists() and not overwrite:
-                skipped += 1
+        progress.advance(task, advance=skipped)
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_convert_one, str(src), str(dest), q, le, progressive)
+                for src, dest in todo
+            ]
+            for fut in as_completed(futures):
+                name, err = fut.result()
+                if err is None:
+                    converted += 1
+                    console.print(f"  -> {name}")
+                else:
+                    failed += 1
+                    console.print(f"  [red]x {name}: {err}[/red]")
                 progress.advance(task)
-                continue
-            try:
-                convert_image_to_jpeg(
-                    src, dest, quality=q, long_edge=le, progressive=progressive
-                )
-                converted += 1
-                console.print(f"  -> {dest.name}")
-            except Exception as exc:  # noqa: BLE001 — keep the batch going
-                failed += 1
-                log.exception("failed to convert %s", src)
-                console.print(f"  [red]x {src.name}: {exc}[/red]")
-            progress.advance(task)
 
     console.print(
         f"[green]JPEG export complete:[/green] "

@@ -172,7 +172,7 @@ The most useful overrides:
 | `RAWCURATOR_BURST_SECONDS`        | `2`           | EXIF timestamp window for burst grouping                                |
 | `RAWCURATOR_PHASH_HAMMING_THRESHOLD` | `8`        | Within-burst pHash distance for "duplicate"                             |
 | `RAWCURATOR_CLIP_COSINE_THRESHOLD`| `0.92`        | CLIP cosine threshold for cross-batch "duplicate"                       |
-| `RAWCURATOR_CPU_WORKERS`          | `4`           | Process pool size for ingest/filter                                     |
+| `RAWCURATOR_CPU_WORKERS`          | `os.cpu_count()` (e.g. `8` on Ryzen 3 3100) | Process pool size for ingest / filter / export-jpeg. Set lower to cap memory pressure. |
 | `RAWCURATOR_JPEG_QUALITY`         | `92`          | JPEG quality used by `make export-jpeg`                                 |
 | `RAWCURATOR_JPEG_LONG_EDGE`       | `0`           | `0` keeps native resolution; e.g. `4000` caps the long edge for sharing |
 | `RAWCURATOR_JPEG_PROGRESSIVE`     | `true`        | Write progressive JPEGs (better for web preview)                         |
