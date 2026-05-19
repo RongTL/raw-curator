@@ -59,6 +59,28 @@ def enhance() -> None:
     run_enhancement()
 
 
+@app.command("export-jpeg")
+def export_jpeg(
+    source: str = typer.Option(
+        "all", help="Which folders to export from: library | exported | all."
+    ),
+    quality: int = typer.Option(
+        None, help="JPEG quality (0-100). Default from RAWCURATOR_JPEG_QUALITY."
+    ),
+    long_edge: int = typer.Option(
+        None,
+        help="Resize so the long edge equals this many pixels. 0 = native resolution.",
+    ),
+    overwrite: bool = typer.Option(
+        False, help="Re-encode files whose JPEG already exists."
+    ),
+) -> None:
+    """Phase 9 (optional): convert library RAWs and exported TIFFs to share-ready JPEGs."""
+    from app.export.jpeg_job import run_jpeg_export
+
+    run_jpeg_export(source=source, quality=quality, long_edge=long_edge, overwrite=overwrite)
+
+
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 8080) -> None:
     """Phase 6: FastAPI + UI."""

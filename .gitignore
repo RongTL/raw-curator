@@ -21,6 +21,7 @@ photos/library/*
 photos/archive/*
 photos/quarantine/*
 photos/exported/*
+photos/jpeg/*
 !photos/*/.gitkeep
 
 tests/data/

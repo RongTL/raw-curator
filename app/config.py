@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     enhance_codeformer_w: float = 0.7
     enhance_out_format: str = "tiff16"
 
+    jpeg_quality: int = 92
+    jpeg_long_edge: int = 0  # 0 = native resolution; e.g. 4000 to cap for sharing
+    jpeg_progressive: bool = True
+    jpeg_subdir: str = "jpeg"
+
     @property
     def db_path(self) -> Path:
         return self.cache / "session.db"

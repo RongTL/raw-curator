@@ -260,6 +260,59 @@ override the CodeFormer weight before running:
 RAWCURATOR_ENHANCE_CODEFORMER_W=0.85 make enhance
 ```
 
+### Step 4b — Export share-ready JPEGs (optional)
+
+RAWs (~25–50 MB each) and 16-bit TIFFs (~150 MB each) are great for
+archival and re-editing, but they are unwieldy for everyday viewing,
+phones, social media, or email. The `export-jpeg` step produces an
+8-bit JPEG sibling for every kept RAW (`photos/library/*`) and every
+enhanced TIFF (`photos/exported/*.tif`).
+
+```bash
+make export-jpeg
+```
+
+Defaults: quality `92`, native resolution, progressive, 4:2:0 chroma
+subsampling. EXIF is copied from the source via `exiftool`; the
+output's `Orientation` tag is forced to `1` because rawpy and
+darktable have already baked the rotation into the pixels — leaving
+the source's `Orientation` tag in place would cause viewers to rotate
+the image a second time.
+
+Outputs land at `photos/jpeg/<stem>.jpg`. If the destination already
+exists the file is skipped, so re-running is cheap. Pass `--overwrite`
+to force a re-encode.
+
+Common variations (run inside the container — `make shell` first, or
+prepend env vars to the `make` invocation):
+
+```bash
+# Quality 95, cap the long edge at 4000 px for web sharing
+RAWCURATOR_JPEG_QUALITY=95 RAWCURATOR_JPEG_LONG_EDGE=4000 make export-jpeg
+
+# Only the enhanced set
+raw-curator export-jpeg --source exported
+
+# Only the kept RAWs (no TIFFs)
+raw-curator export-jpeg --source library
+
+# Re-encode everything, ignoring existing outputs
+raw-curator export-jpeg --overwrite
+```
+
+How each source is processed:
+
+- **RAW → JPEG**: `rawpy.postprocess` with `use_camera_wb=True`,
+  sRGB output, BT.709 gamma `(2.222, 4.5)` — the same recipe as the
+  3000 px previews used in the UI, just at native resolution.
+- **TIFF → JPEG**: `tifffile.imread` → drop alpha if present →
+  `uint16 >> 8` to 8-bit → Pillow JPEG encode. The enhanced TIFFs are
+  already sRGB display-referred so no colour transform is needed.
+
+This step is intentionally last and intentionally optional. It does
+**not** touch the RAW/TIFF sources, and it is the only stage whose
+output is meant to leave the box as-is.
+
 ### Step 5 — Collect your outputs
 
 After submit (and optionally enhance), the working tree looks like:
@@ -271,9 +324,10 @@ photos/
   archive/       <- yes + low originals (after enhance) + no + high RAWs
   quarantine/    <- no + low (will be wiped by `make reset`)
   exported/      <- enhanced 16-bit TIFFs
+  jpeg/          <- share-ready JPEGs (if you ran `make export-jpeg`)
 ```
 
-**Copy `library/` and `exported/` somewhere safe before resetting.** The
+**Copy `library/`, `exported/`, and `jpeg/` somewhere safe before resetting.** The
 system intentionally has no backup story — that is your job. Example:
 
 ```bash
@@ -281,6 +335,7 @@ DEST=~/photos/2026-05-shoot
 mkdir -p "$DEST"
 rsync -a photos/library/ "$DEST/library/"
 rsync -a photos/exported/ "$DEST/exported/"
+rsync -a photos/jpeg/     "$DEST/jpeg/"
 # If you want the no-but-good ones too:
 rsync -a photos/archive/  "$DEST/archive/"
 ```
@@ -295,7 +350,7 @@ Confirms then:
 - Deletes `cache/session.db` (and `-wal`/`-shm`).
 - Empties `cache/previews/` and `cache/thumbs/`.
 - Empties `photos/library/`, `photos/archive/`, `photos/quarantine/`,
-  `photos/exported/`.
+  `photos/exported/`, `photos/jpeg/`.
 - Runs `alembic upgrade head` to give you a fresh empty schema.
 - Leaves `photos/incoming/`, `models/`, and `xmp/` alone.
 

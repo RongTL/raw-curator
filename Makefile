@@ -1,8 +1,8 @@
 COMPOSE ?= podman-compose
 RUN := $(COMPOSE) run --rm app raw-curator
 
-.PHONY: image reset run ingest filter score cluster submit enhance serve shell test \
-        lint typecheck download-models clean help
+.PHONY: image reset run ingest filter score cluster submit enhance export-jpeg \
+        serve shell test lint typecheck download-models clean help
 
 help:
 	@echo "Targets:"
@@ -15,6 +15,7 @@ help:
 	@echo "  cluster         Burst + phash + CLIP HDBSCAN"
 	@echo "  submit          Apply staged decisions"
 	@echo "  enhance         Hybrid RAW -> AI -> TIFF for Yes+Low set"
+	@echo "  export-jpeg     Convert library RAWs + exported TIFFs to share-ready JPEGs"
 	@echo "  run             Ingest -> filter -> score -> cluster (autopilot)"
 	@echo "  serve           FastAPI + UI on http://localhost:8080"
 	@echo "  shell           Drop into a shell in the app container"
@@ -29,7 +30,7 @@ reset:
 	rm -f cache/session.db cache/session.db-wal cache/session.db-shm
 	rm -rf cache/previews/* cache/thumbs/* 2>/dev/null || true
 	mkdir -p cache/previews cache/thumbs
-	rm -rf photos/library/* photos/archive/* photos/quarantine/* photos/exported/* 2>/dev/null || true
+	rm -rf photos/library/* photos/archive/* photos/quarantine/* photos/exported/* photos/jpeg/* 2>/dev/null || true
 	$(COMPOSE) run --rm app alembic upgrade head
 
 download-models:
@@ -52,6 +53,9 @@ submit:
 
 enhance:
 	$(RUN) enhance
+
+export-jpeg:
+	$(RUN) export-jpeg
 
 run:
 	$(RUN) run --auto

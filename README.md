@@ -43,7 +43,12 @@ For each batch of RAWs:
    CodeFormer-if-faces) runs on a downscaled copy that fits in 6 GB VRAM,
    then the result is resampled back to native resolution and written
    as a 16-bit TIFF.
-8. **Reset** — `make reset` deletes the SQLite DB, clears cache and
+8. **Export JPEG** *(optional)* — `make export-jpeg` develops every
+   kept RAW in `photos/library/` and every enhanced TIFF in
+   `photos/exported/` into a share-ready JPEG under `photos/jpeg/`.
+   EXIF is copied from the source; orientation is baked in so viewers
+   render the image right-side-up without further rotation.
+9. **Reset** — `make reset` deletes the SQLite DB, clears cache and
    working dirs; `models/` is left alone.
 
 ---
@@ -73,6 +78,9 @@ make serve
 # For the yes-low subset, run the enhancement pipeline:
 make enhance
 
+# Optional final step: produce share-ready JPEGs from library RAWs and exported TIFFs
+make export-jpeg
+
 # At the end of the session, wipe state:
 make reset
 ```
@@ -96,6 +104,7 @@ make reset
 | `serve`           | FastAPI + UI on `http://0.0.0.0:8080`                           |
 | `submit`          | Apply staged decisions (file moves) outside the UI              |
 | `enhance`         | Hybrid RAW → AI → 16-bit TIFF for the yes-low set               |
+| `export-jpeg`     | RAWs (`library/`) and TIFFs (`exported/`) → share-ready JPEGs in `photos/jpeg/` |
 | `shell`           | Drop into a bash shell inside the container                     |
 | `test`            | `pytest -q` inside the container                                |
 | `lint`            | `ruff check app/ tests/`                                        |
@@ -113,6 +122,7 @@ photos/
   archive/       <- yes + low (RAW set aside after enhance) | no + high
   quarantine/    <- no + low (wiped by `make reset`)
   exported/      <- enhanced 16-bit TIFFs
+  jpeg/          <- share-ready 8-bit JPEGs from `make export-jpeg` (optional)
 
 cache/           <- session DB + previews + thumbs (wiped by `make reset`)
   session.db     <- SQLite + sqlite-vec, WAL mode
@@ -155,6 +165,9 @@ The most useful overrides:
 | `RAWCURATOR_PHASH_HAMMING_THRESHOLD` | `8`        | Within-burst pHash distance for "duplicate"                             |
 | `RAWCURATOR_CLIP_COSINE_THRESHOLD`| `0.92`        | CLIP cosine threshold for cross-batch "duplicate"                       |
 | `RAWCURATOR_CPU_WORKERS`          | `4`           | Process pool size for ingest/filter                                     |
+| `RAWCURATOR_JPEG_QUALITY`         | `92`          | JPEG quality used by `make export-jpeg`                                 |
+| `RAWCURATOR_JPEG_LONG_EDGE`       | `0`           | `0` keeps native resolution; e.g. `4000` caps the long edge for sharing |
+| `RAWCURATOR_JPEG_PROGRESSIVE`     | `true`        | Write progressive JPEGs (better for web preview)                         |
 
 ---
 
