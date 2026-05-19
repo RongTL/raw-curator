@@ -31,16 +31,19 @@ def _candidates() -> list[tuple[dict, bool]]:
     snapshots: list[tuple[dict, bool]] = []
     with session_scope() as sess:
         rows = sess.execute(
-            select(Photo.hash, Photo.source_path, Decision.action)
+            select(Photo.hash, Photo.source_path, Photo.file_kind, Decision.action)
             .join(Decision, Photo.hash == Decision.photo_hash)
             .where(Decision.action == "enhance_export")
         ).all()
         faces_by_hash: dict[str, bool] = {}
         for (digest,) in sess.execute(select(Face.photo_hash).distinct()).all():
             faces_by_hash[digest] = True
-        for digest, source_path, _action in rows:
+        for digest, source_path, file_kind, _action in rows:
             snapshots.append(
-                ({"hash": digest, "source_path": source_path}, faces_by_hash.get(digest, False))
+                (
+                    {"hash": digest, "source_path": source_path, "file_kind": file_kind},
+                    faces_by_hash.get(digest, False),
+                )
             )
     return snapshots
 
@@ -64,6 +67,12 @@ def _enhance_one(photo: dict, has_faces: bool) -> Path | None:
     src = Path(photo["source_path"])
     if not src.exists():
         log.warning("source missing: %s", src)
+        return None
+    file_kind = photo.get("file_kind")
+    if file_kind is not None and file_kind != "raw":
+        log.warning(
+            "skipping enhance for non-RAW source (kind=%s): %s", file_kind, src.name
+        )
         return None
     full_tiff = darktable_cli(src, xmp=_xmp_for(photo["source_path"]))
     arr = np.asarray(Image.open(full_tiff))
@@ -93,11 +102,18 @@ def run_enhancement() -> None:
         console.print("[yellow]No photos to enhance.[/yellow]")
         return
     console.print(f"[cyan]Enhancing {len(items)} photo(s).[/cyan]")
+    enhanced = 0
+    skipped = 0
     with Progress() as progress:
         task = progress.add_task("enhance", total=len(items))
         for photo, has_faces in items:
             out = _enhance_one(photo, has_faces)
             if out:
+                enhanced += 1
                 console.print(f"  -> {out}")
+            else:
+                skipped += 1
             progress.advance(task)
-    console.print("[green]Enhancement complete.[/green]")
+    console.print(
+        f"[green]Enhancement complete:[/green] enhanced={enhanced} skipped={skipped}"
+    )

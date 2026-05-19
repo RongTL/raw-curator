@@ -13,12 +13,12 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db import session_scope
+from app.ingest.decode import classify_kind, decode_preview, extract_thumb_bytes
 from app.ingest.exif import ExifData, ExifReader
 from app.ingest.hasher import xxh3_file
 from app.ingest.walker import walk
 from app.models import Photo
 from app.preview.jpeg_writer import decode_jpeg_bytes, resize_long_edge, write_jpeg
-from app.preview.rawpy_dev import develop_preview, extract_embedded_thumb
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -32,16 +32,21 @@ class IngestResult:
     preview_path: str
     width: int
     height: int
+    file_kind: str
 
 
-def _ingest_one(raw_path_str: str) -> IngestResult | None:
-    raw_path = Path(raw_path_str)
+def _ingest_one(src_path_str: str) -> IngestResult | None:
+    src_path = Path(src_path_str)
     try:
-        digest = xxh3_file(raw_path)
-        preview_arr = develop_preview(raw_path)
+        kind = classify_kind(src_path)
+        if kind is None:
+            log.warning("skipping unsupported file: %s", src_path)
+            return None
+        digest = xxh3_file(src_path)
+        preview_arr = decode_preview(src_path)
         h, w = preview_arr.shape[:2]
         preview = resize_long_edge(preview_arr, settings.preview_long_edge)
-        thumb_src = extract_embedded_thumb(raw_path)
+        thumb_src = extract_thumb_bytes(src_path)
         thumb_arr = decode_jpeg_bytes(thumb_src) if thumb_src is not None else preview_arr
         thumb = resize_long_edge(thumb_arr, settings.thumb_long_edge)
 
@@ -52,14 +57,15 @@ def _ingest_one(raw_path_str: str) -> IngestResult | None:
 
         return IngestResult(
             hash=digest,
-            source_path=str(raw_path),
+            source_path=str(src_path),
             thumb_path=str(thumb_path),
             preview_path=str(preview_path),
             width=int(w),
             height=int(h),
+            file_kind=kind.value,
         )
     except Exception as exc:  # noqa: BLE001
-        log.exception("ingest failed for %s: %s", raw_path, exc)
+        log.exception("ingest failed for %s: %s", src_path, exc)
         return None
 
 
@@ -73,11 +79,11 @@ def run_ingest() -> None:
     incoming = settings.photos / "incoming"
     paths = list(walk(incoming))
     if not paths:
-        console.print(f"[yellow]No RAW files found under {incoming}.[/yellow]")
+        console.print(f"[yellow]No supported image files found under {incoming}.[/yellow]")
         return
 
     known = _known_hashes()
-    console.print(f"Found {len(paths)} candidate RAW(s); {len(known)} already ingested.")
+    console.print(f"Found {len(paths)} candidate image(s); {len(known)} already ingested.")
 
     settings.previews_dir.mkdir(parents=True, exist_ok=True)
     settings.thumbs_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +118,7 @@ def run_ingest() -> None:
                 source_path=ir.source_path,
                 thumb_path=ir.thumb_path,
                 preview_path=ir.preview_path,
+                file_kind=ir.file_kind,
                 **exif_fields,
             )
             sess.merge(photo)

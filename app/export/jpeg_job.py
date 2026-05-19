@@ -9,29 +9,32 @@ from rich.console import Console
 from rich.progress import Progress
 
 from app.config import settings
-from app.export.jpeg_writer import (
-    convert_raw_to_jpeg,
-    convert_tiff_to_jpeg,
-    is_raw,
-    is_tiff,
-)
+from app.export.jpeg_writer import convert_image_to_jpeg, is_convertible
 
 log = logging.getLogger(__name__)
 console = Console()
 
 
 def _list_candidates(source: str) -> list[Path]:
-    """Return source files to convert. `source` in {'library', 'exported', 'all'}."""
+    """Return source files to convert. `source` in {'library', 'exported', 'all'}.
+
+    Library can contain any supported image kind (RAW, JPEG, TIFF, HEIC, PNG).
+    Exported contains the enhanced TIFFs from `make enhance`.
+    """
     photos = settings.photos
     items: list[Path] = []
     if source in {"library", "all"}:
         lib = photos / "library"
         if lib.is_dir():
-            items.extend(p for p in sorted(lib.iterdir()) if p.is_file() and is_raw(p))
+            items.extend(
+                p for p in sorted(lib.iterdir()) if p.is_file() and is_convertible(p)
+            )
     if source in {"exported", "all"}:
         exp = photos / "exported"
         if exp.is_dir():
-            items.extend(p for p in sorted(exp.iterdir()) if p.is_file() and is_tiff(p))
+            items.extend(
+                p for p in sorted(exp.iterdir()) if p.is_file() and is_convertible(p)
+            )
     return items
 
 
@@ -76,14 +79,9 @@ def run_jpeg_export(
                 progress.advance(task)
                 continue
             try:
-                if is_raw(src):
-                    convert_raw_to_jpeg(
-                        src, dest, quality=q, long_edge=le, progressive=progressive
-                    )
-                else:
-                    convert_tiff_to_jpeg(
-                        src, dest, quality=q, long_edge=le, progressive=progressive
-                    )
+                convert_image_to_jpeg(
+                    src, dest, quality=q, long_edge=le, progressive=progressive
+                )
                 converted += 1
                 console.print(f"  -> {dest.name}")
             except Exception as exc:  # noqa: BLE001 — keep the batch going

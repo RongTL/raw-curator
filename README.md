@@ -1,9 +1,10 @@
 # raw-curator
 
-An ephemeral, single-batch AI RAW photo curation pipeline. Drop a batch of
-Canon (or other) RAW files into `photos/incoming/`, run the pipeline, review
-in a local web UI, submit decisions, optionally enhance the keep-and-fix
-set, then wipe the session and start fresh on the next batch.
+An ephemeral, single-batch AI photo curation pipeline. Drop a batch of
+RAW, JPEG, TIFF, HEIC, or PNG files into `photos/incoming/`, run the
+pipeline, review in a local web UI, submit decisions, optionally
+enhance the keep-and-fix set, then wipe the session and start fresh
+on the next batch.
 
 Everything runs inside a Podman container. The host only needs the NVIDIA
 driver, Podman, `podman-compose`, and the NVIDIA Container Toolkit.
@@ -16,7 +17,12 @@ driver, Podman, `podman-compose`, and the NVIDIA Container Toolkit.
 
 ## What it does
 
-For each batch of RAWs:
+**Supported input formats:** RAW (Canon CR2/CR3, Nikon NEF/NRW, Sony
+ARW, Fuji RAF, Olympus ORF, Panasonic RW2, Pentax PEF, Adobe DNG, and
+~20 others), JPEG, TIFF, HEIC/HEIF, PNG. The file kind is recorded
+per-photo and surfaced as a chip in the review UI.
+
+For each batch:
 
 1. **Ingest** — walk `photos/incoming/`, compute xxh3 hash, extract EXIF,
    produce 512 px thumb + 3000 px preview JPEGs.
@@ -42,7 +48,9 @@ For each batch of RAWs:
    16-bit linear TIFF, the AI chain (SCUNet → Real-ESRGAN x2 →
    CodeFormer-if-faces) runs on a downscaled copy that fits in 6 GB VRAM,
    then the result is resampled back to native resolution and written
-   as a 16-bit TIFF.
+   as a 16-bit TIFF. **Only runs on RAW sources** — already-developed
+   JPEG/TIFF/HEIC inputs are skipped with a warning since the AI chain
+   is designed around sensor data, not 8-bit display-referred pixels.
 8. **Export JPEG** *(optional)* — `make export-jpeg` develops every
    kept RAW in `photos/library/` and every enhanced TIFF in
    `photos/exported/` into a share-ready JPEG under `photos/jpeg/`.

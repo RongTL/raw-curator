@@ -90,8 +90,23 @@ rsync -av --progress \
 ```
 
 Or read from an SD card on the host directly. Supported formats:
-`.CR2`, `.CR3`, `.ARW`, `.NEF`, `.DNG`, `.RAF`, `.ORF`. Filenames are
-preserved end-to-end.
+
+- **RAW**: `.CR2 .CR3 .CRW .NEF .NRW .ARW .SRW .SR2 .SRF .RAF .ORF
+  .RW2 .DNG .PEF .RAW .X3F .RWL .3FR .IIQ .MEF .MOS .MRW` (developed
+  via rawpy with camera white balance, sRGB output).
+- **Already-developed**: `.JPG .JPEG .TIF .TIFF .HEIC .HEIF .PNG`
+  (decoded via Pillow/tifffile with EXIF auto-rotation; HEIC requires
+  `pillow-heif`, included in the container image).
+
+Each photo's file kind is recorded in the DB (`Photo.file_kind`) and
+shown as a chip on the tile + detail header. Filenames are preserved
+end-to-end. Mixed batches are fine — the score-tier threshold may need
+nudging in `app/decision/rules.py:33` if you mix camera-JPEG with RAW.
+
+Note: `make enhance` only runs the AI chain on RAW sources. JPEG/TIFF/
+HEIC files in the yes-low set are skipped (the chain is designed
+around raw sensor data; running it on 8-bit display-referred pixels
+gives worse results than just leaving the file as-is).
 
 ### Step 2 — Run the analysis pipeline
 

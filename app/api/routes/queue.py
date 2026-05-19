@@ -26,6 +26,7 @@ def list_queue(sort: str = "score", limit: int = 500) -> list[dict]:
                 {
                     "hash": p.hash,
                     "filename": Path(p.source_path).name if p.source_path else None,
+                    "file_kind": p.file_kind,
                     "thumb_url": cache_url(p.thumb_path),
                     "captured_at": p.captured_at.isoformat() if p.captured_at else None,
                     "camera_body": p.camera_body,

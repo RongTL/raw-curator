@@ -40,6 +40,7 @@ class Photo(Base):
     source_path: Mapped[str] = mapped_column(Text, nullable=False)
     thumb_path: Mapped[Optional[str]] = mapped_column(Text)
     preview_path: Mapped[Optional[str]] = mapped_column(Text)
+    file_kind: Mapped[Optional[str]] = mapped_column(String(8))
 
     camera_make: Mapped[Optional[str]] = mapped_column(String(64))
     camera_body: Mapped[Optional[str]] = mapped_column(String(128))

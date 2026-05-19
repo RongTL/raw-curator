@@ -24,6 +24,7 @@ def get_photo(photo_hash: str) -> dict:
             "hash": photo.hash,
             "filename": Path(photo.source_path).name if photo.source_path else None,
             "source_path": photo.source_path,
+            "file_kind": photo.file_kind,
             "preview": photo.preview_path,
             "thumb": photo.thumb_path,
             "preview_url": cache_url(photo.preview_path),

@@ -121,6 +121,12 @@
           <div class="absolute top-1 right-1">
             <${Stars} value=${photo.decision?.stars} />
           </div>
+          ${photo.file_kind && html`
+            <div class="absolute bottom-7 left-1">
+              <span class="bg-zinc-700/90 text-zinc-100 text-[9px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded">
+                ${photo.file_kind}
+              </span>
+            </div>`}
           <div class="absolute bottom-0 inset-x-0 px-2 py-1 bg-black/60 text-[11px] flex justify-between gap-2">
             <span class="font-mono truncate" title=${photo.filename ?? photo.hash}>
               ${photo.filename ?? photo.hash.slice(0, 8)}
@@ -220,6 +226,10 @@
               <span class="font-mono text-zinc-200 truncate" title=${data.source_path ?? data.filename ?? data.hash}>
                 ${data.filename ?? data.hash.slice(0, 10)}
               </span>
+              ${data.file_kind && html`
+                <span class="bg-zinc-700 text-zinc-100 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded">
+                  ${data.file_kind}
+                </span>`}
               <span class="font-mono text-zinc-500 text-xs">${data.hash.slice(0, 8)}</span>
               <span class="text-zinc-500 truncate">${exif}</span>
             </div>

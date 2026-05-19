@@ -1,4 +1,4 @@
-"""Single-file conversion helpers: RAW -> JPEG and TIFF -> JPEG."""
+"""Single-file conversion helpers: any supported source -> JPEG."""
 
 from __future__ import annotations
 
@@ -10,16 +10,27 @@ from pathlib import Path
 import numpy as np
 import rawpy
 import tifffile
-from PIL import Image
+from PIL import Image, ImageOps
+
+from app.ingest.decode import (
+    HEIC_EXTS,
+    JPEG_EXTS,
+    PNG_EXTS,
+    RAW_EXTS,
+    TIFF_EXTS,
+    FileKind,
+    classify_kind,
+    heic_available,
+)
 
 log = logging.getLogger(__name__)
 
 
-RAW_EXTENSIONS = frozenset(
-    {".cr2", ".cr3", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".raf", ".rw2", ".orf",
-     ".pef", ".dng", ".raw", ".rwl", ".x3f", ".3fr", ".iiq", ".mef", ".mos", ".mrw"}
-)
-TIFF_EXTENSIONS = frozenset({".tif", ".tiff"})
+RAW_EXTENSIONS = RAW_EXTS
+TIFF_EXTENSIONS = TIFF_EXTS
+JPEG_EXTENSIONS = JPEG_EXTS
+HEIC_EXTENSIONS = HEIC_EXTS
+PNG_EXTENSIONS = PNG_EXTS
 
 
 def _resize_long_edge(arr: np.ndarray, long_edge: int) -> np.ndarray:
@@ -105,6 +116,14 @@ def _copy_exif(source: Path, dest: Path) -> None:
         log.warning("EXIF copy failed for %s: %s", dest.name, exc)
 
 
+def _load_via_pillow(path: Path) -> np.ndarray:
+    img = Image.open(path)
+    img = ImageOps.exif_transpose(img)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return np.asarray(img)
+
+
 def convert_raw_to_jpeg(
     raw: Path, dest: Path, *, quality: int, long_edge: int, progressive: bool
 ) -> None:
@@ -123,9 +142,49 @@ def convert_tiff_to_jpeg(
     _copy_exif(tiff, dest)
 
 
+def convert_image_to_jpeg(
+    src: Path, dest: Path, *, quality: int, long_edge: int, progressive: bool
+) -> None:
+    """Dispatcher: RAW/TIFF use specialised paths; JPEG/HEIC/PNG go through Pillow.
+
+    If the source is already a JPEG and no resize is requested, we copy bytes
+    instead of re-encoding (avoids generation loss).
+    """
+    kind = classify_kind(src)
+    if kind == FileKind.RAW:
+        convert_raw_to_jpeg(
+            src, dest, quality=quality, long_edge=long_edge, progressive=progressive
+        )
+        return
+    if kind == FileKind.TIFF:
+        convert_tiff_to_jpeg(
+            src, dest, quality=quality, long_edge=long_edge, progressive=progressive
+        )
+        return
+    if kind == FileKind.JPEG and long_edge <= 0:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        return
+    if kind in {FileKind.JPEG, FileKind.HEIC, FileKind.PNG}:
+        arr = _load_via_pillow(src)
+        arr = _resize_long_edge(arr, long_edge)
+        _save_jpeg(arr, dest, quality=quality, progressive=progressive)
+        _copy_exif(src, dest)
+        return
+    raise ValueError(f"unsupported file for JPEG export: {src.suffix} ({src})")
+
+
 def is_raw(path: Path) -> bool:
     return path.suffix.lower() in RAW_EXTENSIONS
 
 
 def is_tiff(path: Path) -> bool:
     return path.suffix.lower() in TIFF_EXTENSIONS
+
+
+def is_convertible(path: Path) -> bool:
+    """True if the path's extension is one we know how to read into a JPEG."""
+    ext = path.suffix.lower()
+    if ext in HEIC_EXTENSIONS and not heic_available():
+        return False
+    return ext in (RAW_EXTENSIONS | TIFF_EXTENSIONS | JPEG_EXTENSIONS | HEIC_EXTENSIONS | PNG_EXTENSIONS)
