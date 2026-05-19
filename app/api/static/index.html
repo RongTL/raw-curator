@@ -32,6 +32,11 @@
         if (!r.ok) throw new Error(`queue ${r.status}`);
         return r.json();
       },
+      clusters: async () => {
+        const r = await fetch(`/api/cluster/`);
+        if (!r.ok) throw new Error(`clusters ${r.status}`);
+        return r.json();
+      },
       photo: async (hash) => {
         const r = await fetch(`/api/photo/${hash}`);
         if (!r.ok) throw new Error(`photo ${r.status}`);
@@ -98,12 +103,13 @@
       return html`<span class="${color} text-xs px-1.5 py-0.5 rounded">${s}</span>`;
     }
 
-    function PhotoTile({ photo, onClick }) {
+    function PhotoTile({ photo, onClick, highlight = false }) {
       const score = photo.technical_score == null ? "—" : photo.technical_score.toFixed(2);
       const aest = photo.aesthetic_score == null ? "—" : photo.aesthetic_score.toFixed(1);
+      const ring = highlight ? "ring-2 ring-amber-400" : "";
       return html`
         <button
-          class="photo-tile relative group bg-zinc-900 rounded overflow-hidden text-left"
+          class="photo-tile relative group bg-zinc-900 rounded overflow-hidden text-left ${ring}"
           onClick=${onClick}>
           <img src=${photo.thumb_url} alt=${photo.hash}
                class="block w-full aspect-[3/2] object-cover" />
@@ -128,6 +134,45 @@
       return html`
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 p-2">
           ${items.map(p => html`<${PhotoTile} key=${p.hash} photo=${p} onClick=${() => onSelect(p.hash)} />`)}
+        </div>`;
+    }
+
+    function ClusterSection({ cluster, onSelect }) {
+      const isUnclustered = cluster.kind === "unclustered";
+      const headerColor = isUnclustered ? "text-zinc-500" : "text-zinc-200";
+      const kindBadge = isUnclustered ? null : html`
+        <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+          ${cluster.kind}
+        </span>`;
+      const title = isUnclustered
+        ? "Unclustered (singletons)"
+        : `Cluster #${cluster.id}`;
+      return html`
+        <section class="border-t border-zinc-800">
+          <div class="flex items-center gap-3 px-3 py-2 sticky top-0 bg-zinc-950/95 backdrop-blur z-10">
+            <span class="${headerColor} text-sm font-semibold">${title}</span>
+            ${kindBadge}
+            <span class="text-xs text-zinc-500">${cluster.size} photo${cluster.size === 1 ? "" : "s"}</span>
+            ${cluster.label && html`<span class="text-xs text-zinc-400">${cluster.label}</span>`}
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-2 pb-3">
+            ${cluster.photos.map(p => html`
+              <${PhotoTile}
+                key=${p.hash}
+                photo=${p}
+                highlight=${!isUnclustered && p.is_recommended}
+                onClick=${() => onSelect(p.hash)} />`)}
+          </div>
+        </section>`;
+    }
+
+    function ClusterView({ clusters, onSelect }) {
+      if (!clusters || clusters.length === 0) {
+        return html`<div class="p-8 text-zinc-500">No clusters yet. Run <span class="kbd">make cluster</span>.</div>`;
+      }
+      return html`
+        <div>
+          ${clusters.map(c => html`<${ClusterSection} key=${c.id} cluster=${c} onSelect=${onSelect} />`)}
         </div>`;
     }
 
@@ -230,7 +275,13 @@
         </div>`;
     }
 
-    function Header({ count, pendingCount, sort, setSort, onSubmit, busy }) {
+    function Header({ count, pendingCount, sort, setSort, view, setView, onSubmit, busy }) {
+      const tabBtn = (id, label) => html`
+        <button
+          onClick=${() => setView(id)}
+          class="px-3 py-1 rounded text-sm ${view === id ? "bg-zinc-700 text-zinc-100" : "bg-zinc-900 text-zinc-400"}">
+          ${label}
+        </button>`;
       return html`
         <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
           <div class="flex items-baseline gap-4">
@@ -239,12 +290,17 @@
             <span class="text-sm text-amber-400">${pendingCount} pending decision${pendingCount === 1 ? "" : "s"}</span>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-xs text-zinc-500">sort</label>
-            <select value=${sort} onChange=${(e) => setSort(e.target.value)}
-                    class="bg-zinc-900 border border-zinc-800 text-sm rounded px-2 py-1">
-              <option value="score">score (technical)</option>
-              <option value="captured">captured</option>
-            </select>
+            <div class="flex gap-1 mr-2 p-0.5 bg-zinc-900 border border-zinc-800 rounded">
+              ${tabBtn("all", "All")}
+              ${tabBtn("clusters", "Clusters")}
+            </div>
+            ${view === "all" && html`
+              <label class="text-xs text-zinc-500">sort</label>
+              <select value=${sort} onChange=${(e) => setSort(e.target.value)}
+                      class="bg-zinc-900 border border-zinc-800 text-sm rounded px-2 py-1">
+                <option value="score">score (technical)</option>
+                <option value="captured">captured</option>
+              </select>`}
             <button onClick=${onSubmit} disabled=${busy || pendingCount === 0}
                     class="px-3 py-1.5 rounded bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
               ${busy ? "submitting…" : `submit batch (${pendingCount})`}
@@ -255,16 +311,27 @@
 
     function App() {
       const [sort, setSort] = useState("score");
-      const { data: items, refetch: refetchQueue } = useQuery(() => api.queue(sort), [sort]);
+      const [view, setView] = useState("all");
+      const { data: queueItems, refetch: refetchQueue } = useQuery(() => api.queue(sort), [sort]);
+      const { data: clusters, refetch: refetchClusters } = useQuery(() => api.clusters(), []);
       const { data: pending, refetch: refetchPending } = useQuery(() => api.pending(), []);
       const [openHash, setOpenHash] = useState(null);
       const [busy, setBusy] = useState(false);
       const [status, setStatus] = useState(null);
 
+      // In cluster view, the linear nav order is cluster1 -> cluster2 -> ... -> unclustered.
+      const items = useMemo(() => {
+        if (view === "clusters") {
+          return (clusters ?? []).flatMap(c => c.photos);
+        }
+        return queueItems ?? null;
+      }, [view, queueItems, clusters]);
+
       const refreshAll = useCallback(() => {
         refetchQueue();
+        refetchClusters();
         refetchPending();
-      }, [refetchQueue, refetchPending]);
+      }, [refetchQueue, refetchClusters, refetchPending]);
 
       const openIndex = useMemo(
         () => items?.findIndex(p => p.hash === openHash) ?? -1,
@@ -300,16 +367,25 @@
         s: () => onSubmit(),
       }), [openHash, items, onSubmit]));
 
+      const body = (() => {
+        if (view === "clusters") {
+          if (!clusters) return html`<div class="p-8 text-zinc-500">loading…</div>`;
+          return html`<${ClusterView} clusters=${clusters} onSelect=${setOpenHash} />`;
+        }
+        if (!items) return html`<div class="p-8 text-zinc-500">loading…</div>`;
+        if (items.length === 0) {
+          return html`<div class="p-8 text-zinc-500">No photos yet. Run <span class="kbd">make ingest</span>.</div>`;
+        }
+        return html`<${PhotoGrid} items=${items} onSelect=${setOpenHash} />`;
+      })();
+
       return html`
         <${Fragment}>
           <${Header} count=${items?.length ?? 0} pendingCount=${pending?.length ?? 0}
-                     sort=${sort} setSort=${setSort} onSubmit=${onSubmit} busy=${busy} />
+                     sort=${sort} setSort=${setSort} view=${view} setView=${setView}
+                     onSubmit=${onSubmit} busy=${busy} />
           ${status && html`<div class="px-4 py-1 text-xs bg-zinc-900 border-b border-zinc-800">${status}</div>`}
-          ${items
-            ? items.length === 0
-              ? html`<div class="p-8 text-zinc-500">No photos yet. Run <span class="kbd">make ingest</span>.</div>`
-              : html`<${PhotoGrid} items=${items} onSelect=${setOpenHash} />`
-            : html`<div class="p-8 text-zinc-500">loading…</div>`}
+          ${body}
           ${openHash && html`<${DetailModal} hash=${openHash}
                               onClose=${() => setOpenHash(null)}
                               onPrev=${prev} onNext=${next}
