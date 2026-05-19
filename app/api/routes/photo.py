@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
@@ -20,6 +22,8 @@ def get_photo(photo_hash: str) -> dict:
         decision = sess.get(Decision, photo_hash)
         return {
             "hash": photo.hash,
+            "filename": Path(photo.source_path).name if photo.source_path else None,
+            "source_path": photo.source_path,
             "preview": photo.preview_path,
             "thumb": photo.thumb_path,
             "preview_url": cache_url(photo.preview_path),

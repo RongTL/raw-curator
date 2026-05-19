@@ -115,9 +115,11 @@
           <div class="absolute top-1 right-1">
             <${Stars} value=${photo.decision?.stars} />
           </div>
-          <div class="absolute bottom-0 inset-x-0 px-2 py-1 bg-black/60 text-[11px] flex justify-between">
-            <span class="font-mono">${photo.hash.slice(0, 8)}</span>
-            <span>tech ${score} • aes ${aest}</span>
+          <div class="absolute bottom-0 inset-x-0 px-2 py-1 bg-black/60 text-[11px] flex justify-between gap-2">
+            <span class="font-mono truncate" title=${photo.filename ?? photo.hash}>
+              ${photo.filename ?? photo.hash.slice(0, 8)}
+            </span>
+            <span class="shrink-0">tech ${score} • aes ${aest}</span>
           </div>
         </button>`;
     }
@@ -167,11 +169,14 @@
       return html`
         <div class="fixed inset-0 bg-black/95 flex flex-col" role="dialog" aria-modal="true">
           <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 min-w-0">
               <button onClick=${onPrev} class="px-2 py-1 bg-zinc-800 rounded">←</button>
               <button onClick=${onNext} class="px-2 py-1 bg-zinc-800 rounded">→</button>
-              <span class="font-mono text-zinc-400">${data.hash.slice(0, 10)}</span>
-              <span class="text-zinc-500">${exif}</span>
+              <span class="font-mono text-zinc-200 truncate" title=${data.source_path ?? data.filename ?? data.hash}>
+                ${data.filename ?? data.hash.slice(0, 10)}
+              </span>
+              <span class="font-mono text-zinc-500 text-xs">${data.hash.slice(0, 8)}</span>
+              <span class="text-zinc-500 truncate">${exif}</span>
             </div>
             <button onClick=${onClose} class="px-3 py-1 bg-zinc-800 rounded">close (esc)</button>
           </div>
