@@ -3,6 +3,7 @@ cache/
 models/
 xmp/
 .git/
+.github/
 .venv/
 .mypy_cache/
 .pytest_cache/
@@ -13,6 +14,12 @@ __pycache__/
 node_modules/
 app/ui/dist/
 app/ui/node_modules/
-tests/data/
+tests/
+plans/
 *.log
 .DS_Store
+.env
+.env.*
+!.env.example
+USER_GUIDE.md
+Makefile
