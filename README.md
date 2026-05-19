@@ -164,7 +164,7 @@ The most useful overrides:
 
 | Variable                          | Default       | Purpose                                                                 |
 |-----------------------------------|---------------|-------------------------------------------------------------------------|
-| `RAWCURATOR_ENHANCE_AI_SCALE`     | `0.4`         | Pre-AI downscale factor. `0.4` fits SCUNet in 6 GB; raise to `0.6` if you have more VRAM. |
+| `RAWCURATOR_ENHANCE_AI_SCALE`     | `0.7`         | Pre-AI downscale factor. `0.7` peaks ~5.5 GB on a 6 GB card (24 MP source). Lower to `0.5` if other CUDA processes share the GPU; raise toward `0.75` only on 8 GB+ cards. |
 | `RAWCURATOR_ENHANCE_DENOISE`      | `true`        | Skip SCUNet if false                                                    |
 | `RAWCURATOR_ENHANCE_FACE_RESTORE` | `true`        | Skip CodeFormer if false                                                |
 | `RAWCURATOR_ENHANCE_CODEFORMER_W` | `0.7`         | Fidelity weight; `0.85+` for portraits of known faces                   |
@@ -219,7 +219,7 @@ CodeFormer altered pixels, output SHA differs from a no-op TIFF).
 | `Failed to initialize NVML` inside container   | `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`            |
 | `make image` is slow                           | Expected — CUDA base + pyiqa + insightface push the image to ~27 GB. Cached on rebuild. |
 | `make run` OOM during scoring                  | Lower `RAWCURATOR_CLIP_BATCH=4`; ensure no other CUDA process is resident |
-| `make enhance` OOM                             | Lower `RAWCURATOR_ENHANCE_AI_SCALE=0.35`                                |
+| `make enhance` OOM                             | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (0.7 → 0.5 → 0.4)                    |
 | UI shows "loading…" forever                    | Check `podman logs <ui-container>`; usually `make reset` was skipped and the DB schema is missing |
 | `darktable-cli` error "output file already exists" | Already worked around — if you see this, the workaround in `app/enhancement/develop_full.py` regressed |
 

@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     phash_hamming_threshold: int = 8
     clip_cosine_threshold: float = 0.92
 
-    enhance_ai_scale: float = 0.4  # 24MP -> ~2.4kx1.6k for SCUNet, fits 6 GB
+    enhance_ai_scale: float = 0.7  # 24MP -> ~4.2kx2.8k for SCUNet, peaks ~5.5 GB on 6 GB cards
     enhance_target_res: str = "native"
     enhance_denoise: bool = True
     enhance_face_restore: bool = True

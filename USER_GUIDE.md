@@ -252,8 +252,8 @@ For each photo:
 1. **darktable-cli** develops the RAW (using a matching `.xmp` sidecar
    from `xmp/` if present) to a 16-bit TIFF.
 2. The TIFF is downscaled to `RAWCURATOR_ENHANCE_AI_SCALE` × native
-   size — default `0.4`, which puts a 24 MP image at ~2.4k × 1.6k,
-   the sweet spot for SCUNet at 6 GB VRAM.
+   size — default `0.7`, which puts a 24 MP image at ~4.2k × 2.8k and
+   peaks around 5.5 GB VRAM during SCUNet on a 6 GB card.
 3. **SCUNet** denoises (FP16). VRAM cleared.
 4. **Real-ESRGAN x2** upscales back toward native (FP16, tiled). VRAM
    cleared.
@@ -456,7 +456,7 @@ sqlite> SELECT hash, technical_score, aesthetic_score FROM photos ORDER BY techn
 | `make image` hangs on pyiqa install        | Network egress to pytorch CDN; rerun with `--no-cache` if it stays stuck |
 | `nvidia-smi` works on host but not in container | Re-run `host-bootstrap.sh`; verify `/etc/cdi/nvidia.yaml` exists      |
 | `make score` reports CUDA OOM              | Lower `RAWCURATOR_CLIP_BATCH` (default 8) → 4                          |
-| `make enhance` reports CUDA OOM mid-photo  | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (default 0.4) → 0.35              |
+| `make enhance` reports CUDA OOM mid-photo  | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (default 0.7) → 0.5 → 0.4         |
 | UI thumbnails 404                          | Cache dir not writable — `chmod -R u+rw cache/` on the host           |
 | Submit fails partway                       | DB is in WAL mode and transactional; rerun `make submit`; check `decisions.applied` |
 | Enhance output looks oversharpened         | Lower `RAWCURATOR_ENHANCE_CODEFORMER_W` (the higher the w, the more identity-preserving but less restoration) |
