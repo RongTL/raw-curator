@@ -166,8 +166,13 @@ The most useful overrides:
 |-----------------------------------|---------------|-------------------------------------------------------------------------|
 | `RAWCURATOR_ENHANCE_AI_SCALE`     | `0.7`         | Pre-AI downscale factor. `0.7` peaks ~5.5 GB on a 6 GB card (24 MP source). Lower to `0.5` if other CUDA processes share the GPU; raise toward `0.75` only on 8 GB+ cards. |
 | `RAWCURATOR_ENHANCE_DENOISE`      | `true`        | Skip SCUNet if false                                                    |
+| `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` | `0.75`    | Blends SCUNet output with the input. `1.0` is full denoise; `<1` retains natural micro-texture so the image doesn't look plastic. |
+| `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` | `0.7` | Blends Real-ESRGAN output with a Lanczos upscale. `1.0` is full AI sharpening (riskier on skin/sky/foliage); `0.7` keeps most detail recovery while softening AI artifacts; drop to `0.5` for very soft output. |
 | `RAWCURATOR_ENHANCE_FACE_RESTORE` | `true`        | Skip CodeFormer if false                                                |
-| `RAWCURATOR_ENHANCE_CODEFORMER_W` | `0.7`         | Fidelity weight; `0.85+` for portraits of known faces                   |
+| `RAWCURATOR_ENHANCE_CODEFORMER_W` | `0.85`        | Higher = more faithful to the original skin texture (natural). Lower = stronger restoration (waxy/airbrushed risk). Default leans natural. |
+| `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY` | `true`    | Auto-detects backlit scenes (dense shadows + dense highlights) and lifts the subject while protecting background highlights. Edge-preserving — no HDR halos. |
+| `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT` | `0.4` | `0` disables; `~0.4` is natural; `>0.7` starts looking HDR.            |
+| `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT` | `0.15` | How aggressively the lift rolls off above ~65% luminance.        |
 | `RAWCURATOR_ENHANCE_TARGET_RES`   | `native`      | `native` \| `200%` \| `WIDTHxHEIGHT`                                    |
 | `RAWCURATOR_BURST_SECONDS`        | `2`           | EXIF timestamp window for burst grouping                                |
 | `RAWCURATOR_PHASH_HAMMING_THRESHOLD` | `8`        | Within-burst pHash distance for "duplicate"                             |

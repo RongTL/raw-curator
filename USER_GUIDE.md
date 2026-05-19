@@ -254,14 +254,27 @@ For each photo:
 2. The TIFF is downscaled to `RAWCURATOR_ENHANCE_AI_SCALE` × native
    size — default `0.7`, which puts a 24 MP image at ~4.2k × 2.8k and
    peaks around 5.5 GB VRAM during SCUNet on a 6 GB card.
-3. **SCUNet** denoises (FP16). VRAM cleared.
-4. **Real-ESRGAN x2** upscales back toward native (FP16, tiled). VRAM
-   cleared.
-5. If `score` found faces in this photo, **CodeFormer**
-   (`w = 0.7` by default) restores them. VRAM cleared.
-6. Lanczos resample to `RAWCURATOR_ENHANCE_TARGET_RES` (default
+3. **Backlit recovery** (auto): if the histogram shows a dark subject
+   against blown highlights, an edge-preserving shadow lift brightens
+   the subject while a highlight-protect mask keeps the background's
+   detail. Tunable via `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT`
+   (default `0.4`) and `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT`
+   (default `0.15`); set `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY=false`
+   to disable.
+4. **SCUNet** denoises (FP16) and the result is blended back with the
+   input at `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` (default `0.75`) so
+   the photo keeps natural micro-texture instead of looking plastic.
+   VRAM cleared.
+5. **Real-ESRGAN x2** upscales toward native (FP16, tiled), then the
+   GAN output is blended with a Lanczos upscale of the same input at
+   `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` (default `0.5`) to soften
+   the GAN's over-sharpened edges on skin / sky / foliage. VRAM cleared.
+6. If `score` found faces in this photo, **CodeFormer**
+   (`w = 0.85` by default — leans natural, faithful to original skin)
+   restores them. VRAM cleared.
+7. Lanczos resample to `RAWCURATOR_ENHANCE_TARGET_RES` (default
    `native`).
-7. Write a 16-bit TIFF to `photos/exported/<name>.tif` with sRGB v2
+8. Write a 16-bit TIFF to `photos/exported/<name>.tif` with sRGB v2
    ICC profile.
 
 The original RAW stays in `photos/exported/` alongside the new TIFF.
@@ -459,7 +472,10 @@ sqlite> SELECT hash, technical_score, aesthetic_score FROM photos ORDER BY techn
 | `make enhance` reports CUDA OOM mid-photo  | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (default 0.7) → 0.5 → 0.4         |
 | UI thumbnails 404                          | Cache dir not writable — `chmod -R u+rw cache/` on the host           |
 | Submit fails partway                       | DB is in WAL mode and transactional; rerun `make submit`; check `decisions.applied` |
-| Enhance output looks oversharpened         | Lower `RAWCURATOR_ENHANCE_CODEFORMER_W` (the higher the w, the more identity-preserving but less restoration) |
+| Enhance output looks oversharpened         | Lower `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` toward `0.3` (softer); for faces, *raise* `RAWCURATOR_ENHANCE_CODEFORMER_W` toward `0.95` (higher w = more faithful to original skin) |
+| Enhance output looks waxy / airbrushed     | Raise `RAWCURATOR_ENHANCE_CODEFORMER_W` toward `0.95`, and lower `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` to `0.5–0.6` to keep more original micro-texture |
+| Backlit subject still too dark             | Raise `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT` toward `0.6` (>0.7 starts looking HDR); confirm `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY=true` |
+| Backlit recovery blew out the sky          | Raise `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT` toward `0.3` |
 | RAW files not detected                     | Check the file extension is one of `.CR2 .CR3 .ARW .NEF .DNG .RAF .ORF` (case-insensitive) |
 
 For anything not on the table: `make shell` + `raw-curator info` and

@@ -46,8 +46,13 @@ class Settings(BaseSettings):
     enhance_ai_scale: float = 0.7  # 24MP -> ~4.2kx2.8k for SCUNet, peaks ~5.5 GB on 6 GB cards
     enhance_target_res: str = "native"
     enhance_denoise: bool = True
+    enhance_denoise_strength: float = 0.75  # 1.0 = full SCUNet; <1 keeps natural micro-texture
     enhance_face_restore: bool = True
-    enhance_codeformer_w: float = 0.7
+    enhance_codeformer_w: float = 0.85  # higher = more faithful skin, less waxy/airbrushed
+    enhance_realesrgan_fidelity: float = 0.7  # 1.0 = full Real-ESRGAN; ~0.7 softens AI artifacts while keeping most detail recovery
+    enhance_backlit_recovery: bool = True
+    enhance_backlit_shadow_lift: float = 0.4  # 0 disables; ~0.4 natural; >0.7 looks HDR
+    enhance_backlit_highlight_protect: float = 0.15
     enhance_out_format: str = "tiff16"
 
     jpeg_quality: int = 92

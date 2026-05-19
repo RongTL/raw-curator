@@ -10,15 +10,25 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
-def scunet_denoise(rgb: np.ndarray) -> np.ndarray:
+def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
+    """Run SCUNet, then blend the denoised result with the input.
+
+    `strength` in [0, 1]: 1.0 returns pure SCUNet, 0.0 returns the input
+    unchanged. Values <1 retain a fraction of the original micro-texture
+    so the output keeps natural sensor grain instead of looking plastic.
+    """
+    if strength <= 0.0:
+        return rgb
+    strength = float(min(1.0, strength))
+
     weights = Path("/data/models/scunet_color_real_psnr.pth")
     if not weights.exists():
-        log.info("scunet weights missing at %s — skipping denoise", weights)
+        log.warning("scunet weights missing at %s — skipping denoise", weights)
         return rgb
     try:
         import torch  # type: ignore
         from basicsr.archs.scunet_arch import SCUNet  # type: ignore
-    except Exception as exc:  # noqa: BLE001
+    except ImportError as exc:
         log.warning("scunet imports failed: %s — skipping denoise", exc)
         return rgb
 
@@ -37,8 +47,12 @@ def scunet_denoise(rgb: np.ndarray) -> np.ndarray:
     )
     with torch.no_grad():
         y = model(x).clamp(0.0, 1.0)
-    out = (y.squeeze(0).permute(1, 2, 0).float().cpu().numpy() * 255.0).astype(np.uint8)
+    denoised = y.squeeze(0).permute(1, 2, 0).float().cpu().numpy() * 255.0
     del model, x, y
     if device.type == "cuda":
         torch.cuda.empty_cache()
-    return out
+
+    if strength >= 1.0:
+        return denoised.astype(np.uint8)
+    blended = denoised * strength + rgb.astype(np.float32) * (1.0 - strength)
+    return np.clip(blended, 0.0, 255.0).astype(np.uint8)

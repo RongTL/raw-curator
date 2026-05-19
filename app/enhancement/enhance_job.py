@@ -18,6 +18,7 @@ from app.enhancement.develop_full import darktable_cli
 from app.enhancement.downsample import scale
 from app.enhancement.face_restore import codeformer_restore
 from app.enhancement.pack_tiff import write_tiff16
+from app.enhancement.tone_balance import recover_backlit
 from app.enhancement.upsample_final import upsample_final
 from app.enhancement.upscale import realesrgan_x2
 from app.models import Decision, Face, Photo
@@ -77,11 +78,20 @@ def _enhance_one(photo: dict, has_faces: bool) -> Path | None:
     full_tiff = darktable_cli(src, xmp=_xmp_for(photo["source_path"]))
     arr = np.asarray(Image.open(full_tiff))
     native_h, native_w = arr.shape[:2]
+    # Backlit recovery runs at full resolution: the bimodal-histogram
+    # detector is more reliable on the native image, and lifting shadows
+    # here lets SCUNet clean the amplified shadow noise on the next pass.
+    if settings.enhance_backlit_recovery:
+        arr = recover_backlit(
+            arr,
+            shadow_lift=settings.enhance_backlit_shadow_lift,
+            highlight_protect=settings.enhance_backlit_highlight_protect,
+        )
     ai_in = scale(arr, settings.enhance_ai_scale)
     if settings.enhance_denoise:
-        ai_in = scunet_denoise(ai_in)
+        ai_in = scunet_denoise(ai_in, strength=settings.enhance_denoise_strength)
         _free_gpu()
-    ai_up = realesrgan_x2(ai_in)
+    ai_up = realesrgan_x2(ai_in, fidelity=settings.enhance_realesrgan_fidelity)
     _free_gpu()
     if settings.enhance_face_restore and has_faces:
         ai_up = codeformer_restore(ai_up, faces=None, weight=settings.enhance_codeformer_w)
