@@ -4,6 +4,10 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+    # Host networking avoids a rootless podman 5.x cleanup bug that emits
+    # "rootless netns: kill network process: permission denied" after every
+    # container exit. Outbound (HF model downloads) still works fine.
+    network_mode: host
     devices:
       - nvidia.com/gpu=all
     volumes:
@@ -24,8 +28,7 @@ services:
       - app
     entrypoint: ["raw-curator"]
     command: ["serve", "--host", "0.0.0.0", "--port", "8080"]
-    ports:
-      - "8080:8080"
+    network_mode: host
     devices:
       - nvidia.com/gpu=all
     volumes:
