@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.clustering.exif_burst import burst_groups
-from app.clustering.recommend import rank, score
+from app.clustering.recommend import rank
 from app.models import Photo
 
 
