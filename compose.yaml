@@ -16,6 +16,11 @@ services:
       - ./models:/data/models:z
       - ./xmp:/data/xmp:z
     working_dir: /app
+    # podman-compose only uses .env for ${VAR} interpolation in this file,
+    # not for the container's runtime environment. env_file injects all
+    # RAWCURATOR_*, PYTORCH_CUDA_ALLOC_CONF, etc. into the process.
+    env_file:
+      - .env
     environment:
       - RAWCURATOR_CACHE=/data/cache
       - RAWCURATOR_MODELS=/data/models
@@ -40,6 +45,11 @@ services:
       - ./models:/data/models:z
       - ./xmp:/data/xmp:z
     working_dir: /app
+    # podman-compose only uses .env for ${VAR} interpolation in this file,
+    # not for the container's runtime environment. env_file injects all
+    # RAWCURATOR_*, PYTORCH_CUDA_ALLOC_CONF, etc. into the process.
+    env_file:
+      - .env
     environment:
       - RAWCURATOR_CACHE=/data/cache
       - RAWCURATOR_MODELS=/data/models
