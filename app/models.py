@@ -77,6 +77,9 @@ class Photo(Base):
     decision: Mapped[Optional["Decision"]] = relationship(
         back_populates="photo", uselist=False, cascade="all, delete-orphan"
     )
+    quality_report: Mapped[Optional["PhotoQualityReport"]] = relationship(
+        back_populates="photo", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 Index("ix_photos_captured_at", Photo.captured_at)
@@ -154,3 +157,61 @@ class Decision(Base):
 
 
 Index("ix_decisions_applied", Decision.applied)
+
+
+class PhotoQualityReport(Base):
+    """Per-photo Auto Enhancement Engine measurement + scores.
+
+    Populated by `app/enhancement/enhance_job.py` after each measure→score
+    pass. Wiped by `make reset` (which drops the DB file and re-runs
+    `alembic upgrade head`).
+    """
+
+    __tablename__ = "quality_reports"
+    photo_hash: Mapped[str] = mapped_column(
+        String(32), ForeignKey("photos.hash", ondelete="CASCADE"), primary_key=True
+    )
+
+    # §1 Exposure
+    mean_luma: Mapped[float] = mapped_column(Float, nullable=False)
+    shadow_clip: Mapped[float] = mapped_column(Float, nullable=False)
+    highlight_clip: Mapped[float] = mapped_column(Float, nullable=False)
+    midtone_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    midtone_deviation: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # §2 Dynamic Range
+    dr_p95_p5: Mapped[float] = mapped_column(Float, nullable=False)
+    local_dr_mean: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # §3 Color
+    rg_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    bg_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_saturation: Mapped[float] = mapped_column(Float, nullable=False)
+    oversat_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    skin_hue_var: Mapped[Optional[float]] = mapped_column(Float)
+
+    # §4 Sharpness
+    lap_var: Mapped[float] = mapped_column(Float, nullable=False)
+    edge_density: Mapped[float] = mapped_column(Float, nullable=False)
+    hf_energy: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # §5 Noise
+    luma_noise: Mapped[float] = mapped_column(Float, nullable=False)
+    chroma_noise: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # §1.4 / §6 sub-scores + Q (all 0..100)
+    score_exposure: Mapped[float] = mapped_column(Float, nullable=False)
+    score_dynamic_range: Mapped[float] = mapped_column(Float, nullable=False)
+    score_color: Mapped[float] = mapped_column(Float, nullable=False)
+    score_sharpness: Mapped[float] = mapped_column(Float, nullable=False)
+    score_noise: Mapped[float] = mapped_column(Float, nullable=False)
+    score_q: Mapped[float] = mapped_column(Float, nullable=False)
+
+    measured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.current_timestamp()
+    )
+
+    photo: Mapped[Photo] = relationship(back_populates="quality_report")
+
+
+Index("ix_quality_reports_q", PhotoQualityReport.score_q)
