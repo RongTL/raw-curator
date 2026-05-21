@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
 
 log = logging.getLogger(__name__)
+
+# RetinaFace (the detector bundled in FaceRestoreHelper) runs ResNet50 on
+# the FULL input frame. A Real-ESRGAN-upscaled 24 MP RAW lands around
+# 8400x5600 at enhance_ai_scale=0.7, which OOMs a 6 GB card on the very
+# first stride-2 conv (1x64x4200x2800x4 = ~3 GiB). helper's own
+# `resize=640` argument only ever UP-scales tiny inputs (scale = max(1,
+# scale) in the upstream code), so we cap the long edge ourselves before
+# handing the image over. CodeFormer crops every detected face to 512 px
+# internally and the result is upsampled back to native by
+# upsample_final(), so capping only costs a Lanczos round-trip on the
+# non-face areas, which the final resample to native re-flattens anyway.
+_MAX_LONG_EDGE = int(os.environ.get("RAWCURATOR_CF_MAX_LONG_EDGE", "2048"))
 
 
 def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarray:
@@ -29,6 +42,19 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
         return rgb
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    h0, w0 = rgb.shape[:2]
+    long_edge = max(h0, w0)
+    if long_edge > _MAX_LONG_EDGE:
+        s = _MAX_LONG_EDGE / long_edge
+        rgb_in = cv2.resize(
+            rgb,
+            (int(round(w0 * s)), int(round(h0 * s))),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        rgb_in = rgb
+
     net = CodeFormer(
         dim_embd=512,
         codebook_size=1024,
@@ -50,12 +76,15 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
         device=device,
     )
     helper.clean_all()
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    bgr = cv2.cvtColor(rgb_in, cv2.COLOR_RGB2BGR)
     helper.read_image(bgr)
     helper.get_face_landmarks_5(only_center_face=False, resize=640, eye_dist_threshold=5)
     helper.align_warp_face()
 
     if not helper.cropped_faces:
+        del net, helper
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
         return rgb
 
     for cropped_face in helper.cropped_faces:
@@ -66,7 +95,17 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
             output = net(face_t, w=weight, adain=True)[0]
             restored = tensor2img(output, rgb2bgr=True, min_max=(-1, 1)).astype(np.uint8)
         helper.add_restored_face(restored)
+        del face_t, output
 
     helper.get_inverse_affine(None)
     restored_bgr = helper.paste_faces_to_input_image(upsample_img=None)
-    return cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
+    del net, helper
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    restored_rgb = cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
+    if restored_rgb.shape[:2] != (h0, w0):
+        restored_rgb = cv2.resize(
+            restored_rgb, (w0, h0), interpolation=cv2.INTER_LANCZOS4
+        )
+    return restored_rgb

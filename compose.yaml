@@ -21,6 +21,9 @@ services:
       - RAWCURATOR_MODELS=/data/models
       - RAWCURATOR_PHOTOS=/data/photos
       - RAWCURATOR_XMP=/data/xmp
+      # Reduce VRAM fragmentation between SCUNet -> Real-ESRGAN -> CodeFormer
+      # stages so a freed 2 GB block can be reused as 2x1 GB allocations.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
   ui:
     image: raw-curator:latest
@@ -42,3 +45,6 @@ services:
       - RAWCURATOR_MODELS=/data/models
       - RAWCURATOR_PHOTOS=/data/photos
       - RAWCURATOR_XMP=/data/xmp
+      # Reduce VRAM fragmentation between SCUNet -> Real-ESRGAN -> CodeFormer
+      # stages so a freed 2 GB block can be reused as 2x1 GB allocations.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
