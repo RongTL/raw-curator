@@ -9,15 +9,18 @@ from dataclasses import dataclass
 class Rule:
     selected: str   # "yes" | "no"
     score_tier: str # "high" | "low"
-    action: str     # "keep_raw" | "enhance_export" | "archive" | "quarantine"
+    action: str     # "keep_raw" | "enhance_export"
     dest_subdir: str
 
 
+# Workflow: only "yes + high" keeps the RAW untouched. Everything else
+# (kept-but-low quality, or anything the curator said "no" to) goes
+# through the AI enhancement chain so it gets a second chance.
 RULES: dict[tuple[str, str], Rule] = {
     ("yes", "high"): Rule("yes", "high", "keep_raw", "library"),
     ("yes", "low"):  Rule("yes", "low",  "enhance_export", "exported"),
-    ("no",  "high"): Rule("no",  "high", "archive", "archive"),
-    ("no",  "low"):  Rule("no",  "low",  "quarantine", "quarantine"),
+    ("no",  "high"): Rule("no",  "high", "enhance_export", "exported"),
+    ("no",  "low"):  Rule("no",  "low",  "enhance_export", "exported"),
 }
 
 
