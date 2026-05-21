@@ -35,20 +35,22 @@ For each batch:
 5. **Review** — FastAPI + a single-page React UI (CDN, no Node build).
    Stage decisions per photo with keyboard shortcuts; nothing on disk
    moves until you click **Submit**.
-6. **Decide** — rule table maps `(selected, score_tier)` → action:
+6. **Decide** — binary table: `selected` → action. Score tier is no
+   longer part of routing.
 
-   | Selected | Tier | Action          | Destination                  |
-   |----------|------|-----------------|------------------------------|
-   | yes      | high | keep RAW        | `photos/library/`            |
-   | yes      | low  | enhance + export| `photos/exported/` (TIFF)    |
-   | no       | high | archive RAW     | `photos/archive/`            |
-   | no       | low  | quarantine      | `photos/quarantine/`         |
+   | Selected | Action             | At submit                         | After enhance                                             |
+   |----------|--------------------|-----------------------------------|-----------------------------------------------------------|
+   | yes      | `keep_and_enhance` | Move RAW → `photos/library/`      | Enhanced TIFF in `photos/exported/`; RAW kept in `library/` |
+   | no       | `enhance_only`     | RAW stays in place                | Enhanced TIFF in `photos/exported/`; **original RAW deleted from disk** |
 
-7. **Enhance** — for the yes-low set: darktable develops the RAW to a
-   16-bit linear TIFF, the AI chain (SCUNet → Real-ESRGAN x2 →
-   CodeFormer-if-faces) runs on a downscaled copy that fits in 6 GB VRAM,
-   then the result is resampled back to native resolution and written
-   as a 16-bit TIFF. **Only runs on RAW sources** — already-developed
+7. **Enhance** — runs on every decided photo (yes or no). Darktable
+   develops the RAW to a 16-bit linear TIFF, the AI chain
+   (SCUNet → Real-ESRGAN x2 → CodeFormer-if-faces) runs on a downscaled
+   copy that fits in 6 GB VRAM, then the result is resampled back to
+   native resolution and written as a 16-bit TIFF. For `no` photos
+   (`action == "enhance_only"`) the source RAW is deleted **after** the
+   TIFF is successfully written — if enhance fails, the original is
+   preserved. **Only runs on RAW sources** — already-developed
    JPEG/TIFF/HEIC inputs are skipped with a warning since the AI chain
    is designed around sensor data, not 8-bit display-referred pixels.
 8. **Export JPEG** *(optional)* — `make export-jpeg` develops every

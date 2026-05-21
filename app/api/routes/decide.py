@@ -15,10 +15,8 @@ router = APIRouter()
 class DecisionIn(BaseModel):
     photo_hash: str
     selected: str | None = None
-    score_tier: str | None = None
     stars: int | None = None
     favorite: bool | None = None
-    enhance_requested: bool | None = None
     note: str | None = None
 
 
@@ -33,14 +31,10 @@ def stage_decision(d: DecisionIn) -> dict:
             sess.add(existing)
         if d.selected is not None:
             existing.selected = d.selected
-        if d.score_tier is not None:
-            existing.score_tier = d.score_tier
         if d.stars is not None:
             existing.stars = d.stars
         if d.favorite is not None:
             existing.favorite = 1 if d.favorite else 0
-        if d.enhance_requested is not None:
-            existing.enhance_requested = 1 if d.enhance_requested else 0
         if d.note is not None:
             existing.note = d.note
         return {"ok": True}
@@ -54,10 +48,8 @@ def list_pending() -> list[dict]:
             {
                 "photo_hash": d.photo_hash,
                 "selected": d.selected,
-                "score_tier": d.score_tier,
                 "stars": d.stars,
                 "favorite": bool(d.favorite),
-                "enhance_requested": bool(d.enhance_requested),
                 "note": d.note,
             }
             for d in rows

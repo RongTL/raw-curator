@@ -1,4 +1,14 @@
-"""(selected, score_tier) -> action mapping from plan.md."""
+"""Selected -> action mapping.
+
+Binary decision model: the curator marks each photo Yes or No.
+- Yes: original RAW is kept in `photos/library/`, AND the photo is enhanced.
+- No:  original RAW is deleted after enhancement succeeds.
+
+Every decided photo (yes or no) flows through the enhancement chain so that
+every kept-or-discarded source produces a developed TIFF in `photos/exported/`.
+The score tier is no longer part of routing; it remains in the DB for
+display and analytics only.
+"""
 
 from __future__ import annotations
 
@@ -7,29 +17,35 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Rule:
-    selected: str   # "yes" | "no"
-    score_tier: str # "high" | "low"
-    action: str     # "keep_raw" | "enhance_export"
-    dest_subdir: str
+    selected: str           # "yes" | "no"
+    action: str             # "keep_and_enhance" | "enhance_only"
+    library_subdir: str | None  # where the RAW lands at submit; None means stay-in-place
+    delete_source_after_enhance: bool  # for "no", remove the RAW once the TIFF is written
 
 
-# Workflow: only "yes + high" keeps the RAW untouched. Everything else
-# (kept-but-low quality, or anything the curator said "no" to) goes
-# through the AI enhancement chain so it gets a second chance.
-RULES: dict[tuple[str, str], Rule] = {
-    ("yes", "high"): Rule("yes", "high", "keep_raw", "library"),
-    ("yes", "low"):  Rule("yes", "low",  "enhance_export", "exported"),
-    ("no",  "high"): Rule("no",  "high", "enhance_export", "exported"),
-    ("no",  "low"):  Rule("no",  "low",  "enhance_export", "exported"),
+RULES: dict[str, Rule] = {
+    "yes": Rule(
+        selected="yes",
+        action="keep_and_enhance",
+        library_subdir="library",
+        delete_source_after_enhance=False,
+    ),
+    "no": Rule(
+        selected="no",
+        action="enhance_only",
+        library_subdir=None,
+        delete_source_after_enhance=True,
+    ),
 }
 
 
-def resolve(selected: str, score_tier: str) -> Rule | None:
-    return RULES.get((selected.lower(), score_tier.lower()))
+def resolve(selected: str) -> Rule | None:
+    return RULES.get(selected.lower())
 
 
 def tier_from_scores(technical: float | None, aesthetic: float | None) -> str:
-    """High if combined score >= 0.55, else low. Threshold tuned for v1."""
+    """High if combined score >= 0.55, else low. Display-only since the
+    binary routing change — kept so the UI can still surface a quality hint."""
     tech = technical or 0.0
     aesthetic = aesthetic or 0.0
     aesthetic_n = max(0.0, min(1.0, (aesthetic - 1.0) / 9.0))

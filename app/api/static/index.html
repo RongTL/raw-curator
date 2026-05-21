@@ -182,6 +182,50 @@
         </div>`;
     }
 
+    function EngineQualityPanel({ qr }) {
+      const score = (v) => {
+        const cls = v >= 80 ? "text-emerald-400" : v >= 60 ? "text-amber-400" : "text-rose-400";
+        return html`<span class=${cls}>${v.toFixed(0)}</span>`;
+      };
+      const num = (v, d = 2) => v == null ? "—" : Number(v).toFixed(d);
+      return html`
+        <div>
+          <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">
+            engine quality · Q=${score(qr.score_q)}
+          </div>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            <div>exposure ${score(qr.score_exposure)}</div>
+            <div class="text-zinc-500">μ-luma ${num(qr.mean_luma, 0)}</div>
+            <div>dynamic ${score(qr.score_dynamic_range)}</div>
+            <div class="text-zinc-500">DR ${num(qr.dr_p95_p5, 0)}</div>
+            <div>color ${score(qr.score_color)}</div>
+            <div class="text-zinc-500">sat ${num(qr.avg_saturation)}</div>
+            <div>sharp ${score(qr.score_sharpness)}</div>
+            <div class="text-zinc-500">lapVar ${num(qr.lap_var, 0)}</div>
+            <div>noise ${score(qr.score_noise)}</div>
+            <div class="text-zinc-500">σ ${num(qr.luma_noise)}</div>
+          </div>
+          <details class="mt-2 text-xs text-zinc-500">
+            <summary class="cursor-pointer text-zinc-400">all metrics</summary>
+            <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+              <div>shadow clip ${(qr.shadow_clip * 100).toFixed(1)}%</div>
+              <div>highlight clip ${(qr.highlight_clip * 100).toFixed(1)}%</div>
+              <div>midtone ratio ${(qr.midtone_ratio * 100).toFixed(1)}%</div>
+              <div>midtone dev ${num(qr.midtone_deviation)}</div>
+              <div>local DR ${num(qr.local_dr_mean, 0)}</div>
+              <div>R/G ratio ${num(qr.rg_ratio, 3)}</div>
+              <div>B/G ratio ${num(qr.bg_ratio, 3)}</div>
+              <div>oversat ${(qr.oversat_ratio * 100).toFixed(1)}%</div>
+              ${qr.skin_hue_var != null ? html`<div>skin huevar ${num(qr.skin_hue_var, 3)}</div>` : ""}
+              <div>edge density ${(qr.edge_density * 100).toFixed(2)}%</div>
+              <div>HF energy ${num(qr.hf_energy, 0)}</div>
+              <div>chroma noise ${num(qr.chroma_noise)}</div>
+              ${qr.measured_at ? html`<div class="col-span-2 mt-1 text-zinc-600">measured ${qr.measured_at}</div>` : ""}
+            </div>
+          </details>
+        </div>`;
+    }
+
     function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
       const { data, refetch } = useQuery(() => api.photo(hash), [hash]);
 
@@ -206,7 +250,6 @@
         "n": () => mutate({ selected: "no" }),
         "u": () => mutate({ selected: "undecided" }),
         "f": () => mutate({ favorite: !data?.decision?.favorite }),
-        "e": () => mutate({ enhance_requested: !data?.decision?.enhance_requested }),
       }), [mutate, data, onClose, onPrev, onNext]));
 
       if (!data) return html`
@@ -241,7 +284,7 @@
                  class="max-h-full max-w-full object-contain" />
           </div>
 
-          <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
             <div>
               <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">scores</div>
               <div>aesthetic: <span class="text-zinc-100">${data.aesthetic_score?.toFixed(2) ?? "—"}</span></div>
@@ -249,6 +292,14 @@
               <div class="text-zinc-500">musiq ${data.musiq_score?.toFixed(1) ?? "—"} • maniqa ${data.maniqa_score?.toFixed(2) ?? "—"}</div>
               <div class="text-zinc-500">blur var ${data.blur_var?.toFixed(0) ?? "—"} • ${data.faces?.length ?? 0} face(s)</div>
             </div>
+
+            ${data.quality_report ? html`<${EngineQualityPanel} qr=${data.quality_report} />` : html`
+              <div>
+                <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">engine quality</div>
+                <div class="text-xs text-zinc-500 italic">
+                  Run <span class="font-mono">make enhance</span> to compute the quality breakdown.
+                </div>
+              </div>`}
 
             <div>
               <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">decision</div>
@@ -269,14 +320,16 @@
               <div class="flex gap-1.5">
                 <button class="px-2 py-1 rounded ${d?.favorite ? "bg-pink-700" : "bg-zinc-800"}"
                         onClick=${() => mutate({ favorite: !d?.favorite })}>★ favorite <span class="kbd">f</span></button>
-                <button class="px-2 py-1 rounded ${d?.enhance_requested ? "bg-violet-700" : "bg-zinc-800"}"
-                        onClick=${() => mutate({ enhance_requested: !d?.enhance_requested })}>enhance <span class="kbd">e</span></button>
+              </div>
+              <div class="mt-2 text-xs text-zinc-500">
+                Yes → kept in <span class="font-mono">library/</span> + enhanced TIFF.
+                No → enhanced TIFF only; original RAW deleted after enhance.
               </div>
             </div>
 
             <div class="text-xs text-zinc-500">
               <div class="uppercase tracking-wider mb-1">shortcuts</div>
-              <div><span class="kbd">1-5</span> stars · <span class="kbd">y/n/u</span> select · <span class="kbd">f</span> fav · <span class="kbd">e</span> enhance</div>
+              <div><span class="kbd">1-5</span> stars · <span class="kbd">y/n/u</span> select · <span class="kbd">f</span> fav</div>
               <div><span class="kbd">←/→</span> nav · <span class="kbd">space</span> next · <span class="kbd">esc</span> close</div>
               <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "yes" : "no"}</div>
               <div>captured ${data.captured_at ?? "—"}</div>

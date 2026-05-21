@@ -1,4 +1,14 @@
-"""Apply staged decisions: compute action from (selected, score_tier), move files, mark applied."""
+"""Apply staged decisions.
+
+Binary routing:
+- yes -> move RAW to photos/library/, action=keep_and_enhance
+- no  -> leave RAW in place so `make enhance` can still read it;
+         action=enhance_only. The source is deleted by enhance_job after
+         the TIFF is successfully written.
+
+Either way the row is marked applied=1; `make enhance` then picks up
+every photo with an applied keep_and_enhance / enhance_only action.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +21,7 @@ from sqlalchemy import select, update
 from app.config import settings
 from app.db import session_scope
 from app.decision.executor import Move, apply_moves
-from app.decision.rules import resolve, tier_from_scores
+from app.decision.rules import resolve
 from app.models import Decision, Photo
 
 log = logging.getLogger(__name__)
@@ -36,10 +46,7 @@ def apply_decisions() -> None:
             return
 
         for photo, decision in rows:
-            tier = decision.score_tier
-            if tier == "unset":
-                tier = tier_from_scores(photo.technical_score, photo.aesthetic_score)
-            rule = resolve(decision.selected, tier)
+            rule = resolve(decision.selected)
             if rule is None:
                 log.info("skip %s: undecided", photo.hash)
                 continue
@@ -47,26 +54,30 @@ def apply_decisions() -> None:
             if not src.exists():
                 log.warning("skip %s: source path missing %s", photo.hash, src)
                 continue
-            dst = settings.photos / rule.dest_subdir / src.name
-            moves.append(Move(src=src, dst=dst))
+
+            new_source_path = str(src)
+            if rule.library_subdir is not None:
+                dst = settings.photos / rule.library_subdir / src.name
+                moves.append(Move(src=src, dst=dst))
+                new_source_path = str(dst)
+
             updates.append(
                 {
                     "photo_hash": photo.hash,
                     "action": rule.action,
-                    "score_tier": tier,
                     "applied": 1,
-                    "new_source_path": str(dst),
+                    "new_source_path": new_source_path,
                 }
             )
 
         applied = apply_moves(moves)
-        console.print(f"[green]Moved {len(applied)} file(s).[/green]")
+        console.print(f"[green]Moved {len(applied)} file(s) to library/.[/green]")
 
         for u in updates:
             sess.execute(
                 update(Decision)
                 .where(Decision.photo_hash == u["photo_hash"])
-                .values(action=u["action"], score_tier=u["score_tier"], applied=u["applied"])
+                .values(action=u["action"], applied=u["applied"])
             )
             sess.execute(
                 update(Photo)
@@ -74,4 +85,6 @@ def apply_decisions() -> None:
                 .values(source_path=u["new_source_path"])
             )
 
-    console.print("[green]Decisions applied.[/green]")
+    console.print(
+        f"[green]Decisions applied:[/green] {len(updates)} photo(s) queued for enhancement."
+    )

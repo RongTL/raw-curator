@@ -38,11 +38,10 @@ def list_queue(sort: str = "score", limit: int = 500) -> list[dict]:
                     "decision": (
                         {
                             "selected": d.selected,
-                            "score_tier": d.score_tier,
                             "stars": d.stars,
                             "favorite": bool(d.favorite),
-                            "enhance_requested": bool(d.enhance_requested),
                             "applied": bool(d.applied),
+                            "action": d.action,
                         }
                         if d
                         else None

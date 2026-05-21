@@ -53,15 +53,22 @@ The CLI is also reachable directly inside the container: `raw-curator ingest|fil
 3. **score** (`app/scoring/` + `app/embedding/`) — GPU stage. CLIP ViT-L/14 + aesthetic-predictor v2.5 + MUSIQ + MANIQA + InsightFace. Runs **stage-by-stage** (`stage=clip|iqa|faces|all`), freeing CUDA between stages so it fits a 6 GB RTX 2060.
 4. **cluster** (`app/clustering/`) — EXIF burst grouping → pHash dedupe within burst → CLIP cosine + HDBSCAN across the batch → one recommended photo per cluster.
 5. **serve** (`app/api/` + `app/ui/`) — FastAPI app exposing `/api/{queue,photo,cluster,decide,submit}` plus the static SPA from `app/api/static/`. The UI is plain HTML/JS using CDN-hosted React (no Node build step). Decisions are staged in the `decisions` table; nothing moves on disk until **Submit**.
-6. **submit** (`app/decision/`) — applies staged decisions per the rule table in `app/decision/rules.py`. The executor (`executor.py`) does the actual file moves into `photos/{library,archive,quarantine,exported}/`.
-7. **enhance** (`app/enhancement/`) — for photos with `action == "enhance_export"`, the chain is: darktable develops RAW → 16-bit linear TIFF → backlit recovery → downscale to fit 6 GB VRAM → SCUNet denoise → Real-ESRGAN x2 → (CodeFormer if faces) → upsample back to native → write 16-bit TIFF to `photos/exported/`. **RAW-only**; non-RAW sources are skipped with a warning because the AI chain expects sensor data, not 8-bit display-referred pixels.
+6. **submit** (`app/decision/`) — applies staged decisions per the binary rule table in `app/decision/rules.py`. `yes` moves the RAW into `photos/library/`; `no` leaves the RAW in place so `make enhance` can still develop it. `executor.py` does the actual moves.
+7. **enhance** (`app/enhancement/`) — for every photo with `action IN ('keep_and_enhance', 'enhance_only')`, the chain is: darktable develops RAW → 16-bit linear TIFF → backlit recovery → downscale to fit 6 GB VRAM → SCUNet denoise → Real-ESRGAN x2 → (CodeFormer if faces) → upsample back to native → write 16-bit TIFF to `photos/exported/`. When `action == "enhance_only"` (the `no` path) the source RAW is deleted on disk after the TIFF is successfully written. **RAW-only**; non-RAW sources are skipped with a warning (their originals are left in place) because the AI chain expects sensor data, not 8-bit display-referred pixels.
 8. **export-jpeg** (`app/export/`) — optional final step. Develops every kept RAW in `photos/library/` and every enhanced TIFF in `photos/exported/` into share-ready JPEGs in `photos/jpeg/`. EXIF copied from source; orientation baked in. Multi-process via `ProcessPoolExecutor`.
 
 ### Decision rules (`app/decision/rules.py`)
 
-Only **(yes, high)** keeps the RAW untouched in `photos/library/`. Everything else — `(yes, low)`, `(no, high)`, `(no, low)` — routes to `enhance_export` so the AI chain gets a second chance. This is intentional and recent (commit `ba38e5b`); do not "fix" it back to a 4-way split without confirming with the user.
+Binary: `yes` or `no`. Score tier no longer drives routing.
 
-Tier from scores: `combined = 0.6 * technical + 0.4 * normalized_aesthetic`, threshold `0.55` (`tier_from_scores` in `rules.py`).
+| Selected | Action             | At submit                          | After enhance                  |
+|----------|--------------------|------------------------------------|--------------------------------|
+| yes      | `keep_and_enhance` | Move RAW to `photos/library/`      | TIFF written to `exported/`; RAW kept in `library/` |
+| no       | `enhance_only`     | RAW stays in place (e.g. `incoming/`) | TIFF written to `exported/`; source RAW deleted from disk |
+
+Every decided photo flows through the enhancement chain. `make enhance` queries `Decision.action IN ('keep_and_enhance', 'enhance_only')`. The source-RAW deletion for `enhance_only` is intentional and **irreversible**; it happens only after the output TIFF exists on disk, so if enhance fails the original is preserved. Do not re-introduce score tiers into routing without confirming with the user.
+
+`tier_from_scores` (`combined = 0.6 * technical + 0.4 * normalized_aesthetic`, threshold `0.55`) is retained as a display-only helper; the `Decision.score_tier` and `Decision.enhance_requested` columns are dead fields kept in the schema to avoid a migration but are no longer read or written by app code.
 
 ### Storage
 
