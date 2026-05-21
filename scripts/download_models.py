@@ -46,6 +46,20 @@ DIRECT_FILES: list[tuple[str, str, int]] = [
         "CodeFormer/weights/CodeFormer/codeformer.pth",
         300_000_000,
     ),
+    # CodeFormer's RetinaFace detector and parsing net are normally fetched at
+    # runtime by codeformer-pip into its site-packages dir. With --rm containers
+    # that's re-downloaded every run, so we pre-cache them here and `app/__init__`
+    # symlinks them into the package's expected path.
+    (
+        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/detection_Resnet50_Final.pth",
+        "CodeFormer/weights/facelib/detection_Resnet50_Final.pth",
+        100_000_000,
+    ),
+    (
+        "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/parsing_parsenet.pth",
+        "CodeFormer/weights/facelib/parsing_parsenet.pth",
+        80_000_000,
+    ),
 ]
 
 INSIGHTFACE_ZIP = (

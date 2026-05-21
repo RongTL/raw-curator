@@ -62,7 +62,7 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
         n_layers=9,
         connect_list=["32", "64", "128", "256"],
     ).to(device)
-    ckpt = torch.load(str(weights), map_location="cpu")
+    ckpt = torch.load(str(weights), map_location="cpu", weights_only=False)
     net.load_state_dict(ckpt.get("params_ema", ckpt))
     net.eval()
 
