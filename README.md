@@ -2,16 +2,15 @@
 
 An ephemeral, single-batch AI photo curation pipeline. Drop a batch of
 RAW, JPEG, TIFF, HEIC, or PNG files into `photos/incoming/`, run the
-pipeline, review in a local web UI, submit decisions, optionally
-enhance the keep-and-fix set, then wipe the session and start fresh
-on the next batch.
+pipeline, review in a local web UI, submit decisions, run the Auto
+Enhancement Engine on every decided photo, then wipe the session and
+start fresh on the next batch.
 
 Everything runs inside a Podman container. The host only needs the NVIDIA
 driver, Podman, `podman-compose`, and the NVIDIA Container Toolkit.
 
-- Spec: [`../plan.md`](../plan.md)
-- Build plan: [`../implementation.md`](../implementation.md)
 - **End-user walkthrough: [`USER_GUIDE.md`](./USER_GUIDE.md)**
+- **Contributor notes: [`CLAUDE.md`](./CLAUDE.md)**
 
 ---
 
@@ -41,18 +40,24 @@ For each batch:
    | Selected | Action             | At submit                         | After enhance                                             |
    |----------|--------------------|-----------------------------------|-----------------------------------------------------------|
    | yes      | `keep_and_enhance` | Move RAW → `photos/library/`      | Enhanced TIFF in `photos/exported/`; RAW kept in `library/` |
-   | no       | `enhance_only`     | RAW stays in place                | Enhanced TIFF in `photos/exported/`; **original RAW deleted from disk** |
+   | no       | `enhance_only`     | RAW stays in place (e.g. `incoming/`) | Enhanced TIFF in `photos/exported/`; **original RAW deleted from disk** |
 
-7. **Enhance** — runs on every decided photo (yes or no). Darktable
-   develops the RAW to a 16-bit linear TIFF, the AI chain
-   (SCUNet → Real-ESRGAN x2 → CodeFormer-if-faces) runs on a downscaled
-   copy that fits in 6 GB VRAM, then the result is resampled back to
-   native resolution and written as a 16-bit TIFF. For `no` photos
+7. **Enhance** — runs on every decided photo (yes or no) via the **Auto
+   Enhancement Engine**. Darktable develops the RAW to a 16-bit linear
+   TIFF; the engine then measures the input across five quality
+   dimensions (exposure, dynamic range, color, sharpness, noise),
+   persists a `quality_reports` row, and builds an ordered plan of
+   classical + AI steps tuned to that photo's measured deficits.
+   Classical steps (exposure/WB/saturation/CLAHE/unsharp/filmic
+   tone-map) run at native resolution in float32; AI steps (SCUNet
+   denoise → Real-ESRGAN x2 → CodeFormer if faces) run on a downscaled
+   copy that fits 6 GB VRAM, then the result is resampled back and
+   written as a 16-bit TIFF to `photos/exported/`. For `no` photos
    (`action == "enhance_only"`) the source RAW is deleted **after** the
-   TIFF is successfully written — if enhance fails, the original is
-   preserved. **Only runs on RAW sources** — already-developed
-   JPEG/TIFF/HEIC inputs are skipped with a warning since the AI chain
-   is designed around sensor data, not 8-bit display-referred pixels.
+   TIFF is written — if enhance fails, the original is preserved.
+   **Only runs on RAW sources** — already-developed JPEG/TIFF/HEIC
+   inputs are skipped with a warning since the engine expects sensor
+   data, not 8-bit display-referred pixels.
 8. **Export JPEG** *(optional)* — `make export-jpeg` develops every
    kept RAW in `photos/library/` and every enhanced TIFF in
    `photos/exported/` into a share-ready JPEG under `photos/jpeg/`.
@@ -85,7 +90,7 @@ make run
 make serve
 
 # After reviewing in the UI and clicking Submit, the files move on disk.
-# For the yes-low subset, run the enhancement pipeline:
+# Run the Auto Enhancement Engine on every decided photo (yes and no):
 make enhance
 
 # Optional final step: produce share-ready JPEGs from library RAWs and exported TIFFs
@@ -105,7 +110,7 @@ make reset
 |-------------------|-----------------------------------------------------------------|
 | `image`           | `podman build -t raw-curator:latest -f Containerfile .`          |
 | `download-models` | Fetches CLIP, SigLIP, Real-ESRGAN, SCUNet, CodeFormer, InsightFace into `models/` |
-| `reset`           | Drops DB + clears `cache/` + clears `photos/{library,archive,quarantine,exported}/`; runs `alembic upgrade head` |
+| `reset`           | Drops DB + clears `cache/` + clears `photos/{library,archive,quarantine,exported,jpeg}/`; runs `alembic upgrade head` |
 | `ingest`          | Walk `photos/incoming/` → DB rows + previews + thumbs           |
 | `filter`          | Blur / pHash / exposure                                         |
 | `score`           | GPU scoring: CLIP, IQA, faces (stage-by-stage)                  |
@@ -113,7 +118,7 @@ make reset
 | `run`             | `ingest → filter → score → cluster` in one shot (no UI)         |
 | `serve`           | FastAPI + UI on `http://0.0.0.0:8080`                           |
 | `submit`          | Apply staged decisions (file moves) outside the UI              |
-| `enhance`         | Hybrid RAW → AI → 16-bit TIFF for the yes-low set               |
+| `enhance`         | Auto Enhancement Engine: RAW → classical + AI → 16-bit TIFF for every decided photo |
 | `export-jpeg`     | RAWs (`library/`) and TIFFs (`exported/`) → share-ready JPEGs in `photos/jpeg/` |
 | `shell`           | Drop into a bash shell inside the container                     |
 | `test`            | `pytest -q` inside the container                                |
@@ -127,15 +132,15 @@ make reset
 
 ```
 photos/
-  incoming/      <- drop RAWs here at session start
-  library/       <- yes + high score (RAW kept)
-  archive/       <- yes + low (RAW set aside after enhance) | no + high
-  quarantine/    <- no + low (wiped by `make reset`)
-  exported/      <- enhanced 16-bit TIFFs
+  incoming/      <- drop RAWs here at session start; `no` RAWs stay here until enhance deletes them
+  library/       <- `yes` RAWs (kept untouched)
+  archive/       <- legacy bucket; created + wiped by `make reset`, no longer populated by routing
+  quarantine/    <- legacy bucket; created + wiped by `make reset`, no longer populated by routing
+  exported/      <- enhanced 16-bit TIFFs (one per decided photo)
   jpeg/          <- share-ready 8-bit JPEGs from `make export-jpeg` (optional)
 
 cache/           <- session DB + previews + thumbs (wiped by `make reset`)
-  session.db     <- SQLite + sqlite-vec, WAL mode
+  session.db     <- SQLite + sqlite-vec, WAL mode; includes `quality_reports`
   previews/      <- 3000 px JPEG, used by UI + AI stages
   thumbs/        <- 512 px JPEG, used by grid + pHash
 
@@ -199,16 +204,19 @@ RTX 2060 6 GB:
 | Cluster       | 14 s            |                                                      |
 | Enhance       | 47.6 s / photo  | Plan budget was 6 min/photo; well within             |
 
-Decisions exercised end-to-end: yes-high → `library/`, no-low →
-`quarantine/`, yes-low → `exported/` (real SCUNet + Real-ESRGAN +
-CodeFormer altered pixels, output SHA differs from a no-op TIFF).
+Decisions exercised end-to-end under the binary routing: `yes` →
+RAW kept in `library/` + enhanced TIFF in `exported/`; `no` → enhanced
+TIFF in `exported/`, source RAW deleted from `incoming/` after the TIFF
+is written. The Auto Enhancement Engine produces a `quality_reports`
+row per photo and runs the planned classical + AI steps (real SCUNet +
+Real-ESRGAN + CodeFormer altered pixels; output SHA differs from a
+no-op TIFF).
 
-### Known gaps vs `implementation.md`
+### Known gaps
 
-- **Score throughput** on the 6 GB RTX 2060 is 5–6× slower than the
-  ambitious 1.5 s/photo target in plan §4 (steady-state ~11.5 s/photo
-  here). Acceptable for batch use; would benefit from `torch.compile`
-  re-enabling and stage reordering.
+- **Score throughput** on the 6 GB RTX 2060 is steady-state
+  ~11.5 s/photo. Acceptable for batch use; would benefit from
+  `torch.compile` re-enabling and stage reordering.
 - **CodeFormer face-parse weights** (~81 MB) download into
   `codeformer-pip`'s in-container default cache, not `/data/models/`.
   Each fresh `podman run --rm` re-downloads them. Workaround: set
@@ -234,4 +242,4 @@ CodeFormer altered pixels, output SHA differs from a no-op TIFF).
 
 ## License
 
-MIT. See `../plan.md` for full project rationale.
+MIT.

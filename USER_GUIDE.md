@@ -17,16 +17,15 @@ The system has **no long-term memory**. One "session" = one batch:
 ```
 [1] drop RAWs into photos/incoming/
 [2] run the pipeline (ingest → filter → score → cluster)
-[3] open the UI, review, stage decisions, submit
-[4] (optional) run enhance for the yes-low set
+[3] open the UI, review, stage decisions (yes/no), submit
+[4] run enhance — Auto Enhancement Engine runs on every decided photo
 [5] copy outputs out of photos/library/ + photos/exported/
 [6] make reset → DB + cache + working dirs are wiped
 [7] next batch is a clean slate; models/ is kept
 ```
 
 There is **no re-curation across sessions**, **no cross-batch search**,
-and **no audit log retention** beyond the active session. This is by
-design — see [`../plan.md`](../plan.md) §"Session Model".
+and **no audit log retention** beyond the active session.
 
 ---
 
@@ -56,9 +55,9 @@ cache:   /data/cache
 models:  /data/models
 db_url:  sqlite:////data/cache/session.db
 db file present: True
-tables (8): ['alembic_version', 'cluster_members', 'clusters',
+tables (9): ['alembic_version', 'cluster_members', 'clusters',
              'decisions', 'faces', 'photo_embeddings', 'photos',
-             'session_meta']
+             'quality_reports', 'session_meta']
 ```
 
 ---
@@ -73,8 +72,11 @@ make reset          # confirms before wiping; wipes DB + cache + working dirs
 ```
 
 After this:
-- `cache/session.db` is freshly migrated (empty schema).
-- `photos/{library,archive,quarantine,exported}/` are empty.
+- `cache/session.db` is freshly migrated (empty schema, including the
+  `quality_reports` table the Auto Enhancement Engine writes into).
+- `photos/{library,archive,quarantine,exported,jpeg}/` are empty
+  (`archive/` and `quarantine/` exist for historical reasons but are
+  no longer populated under the binary routing).
 - `photos/incoming/` is **left alone** — that is your input.
 - `models/` and `xmp/` are **left alone**.
 
@@ -100,13 +102,15 @@ Or read from an SD card on the host directly. Supported formats:
 
 Each photo's file kind is recorded in the DB (`Photo.file_kind`) and
 shown as a chip on the tile + detail header. Filenames are preserved
-end-to-end. Mixed batches are fine — the score-tier threshold may need
-nudging in `app/decision/rules.py:33` if you mix camera-JPEG with RAW.
+end-to-end. Mixed batches are fine — under the binary routing the
+file kind does not affect submit, only enhance eligibility.
 
-Note: `make enhance` only runs the AI chain on RAW sources. JPEG/TIFF/
-HEIC files in the yes-low set are skipped (the chain is designed
-around raw sensor data; running it on 8-bit display-referred pixels
-gives worse results than just leaving the file as-is).
+Note: `make enhance` only runs the Auto Enhancement Engine on RAW
+sources. Any decided JPEG/TIFF/HEIC photo is skipped with a warning
+(the engine expects sensor data; running it on 8-bit display-referred
+pixels gives worse results than just leaving the file as-is). When
+that happens the original is left in place even if the decision was
+`no` — the source-RAW deletion only fires after a TIFF is written.
 
 ### Step 2 — Run the analysis pipeline
 
@@ -196,35 +200,33 @@ Keyboard shortcuts inside the modal:
 | `n`       | Select **no** (reject)                  |
 | `u`       | Set back to **undecided**               |
 | `f`       | Toggle **favorite**                     |
-| `e`       | Toggle **enhance requested** (yes-low)  |
 | `←` / `→` | Previous / next photo in current sort   |
 | `space`   | Next photo (one-handed reviewing)       |
 | `esc`     | Close detail view                       |
 
-Outside the modal (grid view only):
-
-| Key      | Action                                          |
-|----------|-------------------------------------------------|
-| `Enter`  | Open first photo in detail                      |
-| `s`      | Submit all staged decisions                     |
-
 Sort: `score (technical)` or `captured`. Filter by score is implicit
-through sort order.
+through sort order. Submission happens via the green "submit batch" button
+in the header (no keyboard shortcut).
 
 #### Staging vs submitting
 
-Every decision (stars / yes-no / favorite / enhance) is **staged**
-in the `decisions` table. **Nothing on disk moves** until you click
-the green "submit batch (N)" button or press `s`.
+Every decision (stars / yes-no / favorite) is **staged** in the
+`decisions` table. **Nothing on disk moves** until you click the
+green "submit batch (N)" button in the header.
 
 The header always shows how many photos still have a pending stage.
 
-When you submit:
-1. The decision engine maps `(selected, score_tier)` → action using
-   the rule table in [`app/decision/rules.py`](./app/decision/rules.py).
-2. A single transactional pass moves each RAW from
-   `photos/incoming/` to its target subdirectory.
-3. Decisions are marked `applied=True`.
+When you submit, the decision engine maps `selected` → action using
+the binary rule table in [`app/decision/rules.py`](./app/decision/rules.py):
+
+- `yes` → action `keep_and_enhance`. The RAW is moved from
+  `photos/incoming/` into `photos/library/` and `Photo.source_path`
+  is updated.
+- `no` → action `enhance_only`. The RAW stays in `photos/incoming/`
+  (no move at submit time) so `make enhance` can still develop it;
+  the source is deleted after the TIFF is written.
+
+In both cases the `decisions` row is marked `applied=True`.
 
 If you do not want to use the UI, you can do the equivalent CLI:
 write to the DB by hand (`make shell`, then `sqlite3 /data/cache/session.db`)
@@ -234,14 +236,11 @@ and run:
 make submit
 ```
 
-### Step 4 — Enhance the yes-low set (optional)
+### Step 4 — Enhance every decided photo
 
-For photos where you said **yes** but the technical score was **low**,
-the rule engine staged action `enhance_export`. Submitting moved the
-RAW into a queue (the `Decision.action` column is `enhance_export`),
-but didn't actually run the AI pipeline.
-
-To run it:
+`make enhance` runs the **Auto Enhancement Engine** on every photo
+whose `Decision.action` is `keep_and_enhance` (yes) or `enhance_only`
+(no). RAW-only — non-RAW sources are skipped with a warning.
 
 ```bash
 make enhance
@@ -250,34 +249,41 @@ make enhance
 For each photo:
 
 1. **darktable-cli** develops the RAW (using a matching `.xmp` sidecar
-   from `xmp/` if present) to a 16-bit TIFF.
-2. The TIFF is downscaled to `RAWCURATOR_ENHANCE_AI_SCALE` × native
-   size — default `0.7`, which puts a 24 MP image at ~4.2k × 2.8k and
-   peaks around 5.5 GB VRAM during SCUNet on a 6 GB card.
-3. **Backlit recovery** (auto): if the histogram shows a dark subject
-   against blown highlights, an edge-preserving shadow lift brightens
-   the subject while a highlight-protect mask keeps the background's
-   detail. Tunable via `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT`
-   (default `0.4`) and `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT`
-   (default `0.15`); set `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY=false`
-   to disable.
-4. **SCUNet** denoises (FP16) and the result is blended back with the
-   input at `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` (default `0.75`) so
-   the photo keeps natural micro-texture instead of looking plastic.
-   VRAM cleared.
-5. **Real-ESRGAN x2** upscales toward native (FP16, tiled), then the
-   GAN output is blended with a Lanczos upscale of the same input at
-   `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` (default `0.5`) to soften
-   the GAN's over-sharpened edges on skin / sky / foliage. VRAM cleared.
-6. If `score` found faces in this photo, **CodeFormer**
-   (`w = 0.85` by default — leans natural, faithful to original skin)
-   restores them. VRAM cleared.
-7. Lanczos resample to `RAWCURATOR_ENHANCE_TARGET_RES` (default
-   `native`).
-8. Write a 16-bit TIFF to `photos/exported/<name>.tif` with sRGB v2
-   ICC profile.
-
-The original RAW stays in `photos/exported/` alongside the new TIFF.
+   from `xmp/` if present) to a 16-bit linear TIFF, loaded as float32
+   RGB in `[0, 1]`.
+2. The engine **measures quality** across five dimensions — exposure,
+   dynamic range, color, sharpness, noise — and writes a row into the
+   `quality_reports` table (composite Q score + per-dimension
+   sub-scores + raw metrics).
+3. The engine **builds an ordered plan** of classical + AI steps from
+   those measurements (`app/enhancement/engine/decision.py`). Each
+   step is included only when its indicator metric crosses a spec
+   threshold, and step strength scales with the measured deficit, so
+   already-clean inputs are not over-processed.
+4. The runner **executes the plan** in three passes:
+   - Pre-AI classical steps at full native resolution in float32
+     (e.g. exposure gamma, shadow lift, highlight recover, backlit
+     recovery, gray-world WB, saturation, global tone compression).
+   - AI steps on a downscaled copy (`RAWCURATOR_ENHANCE_AI_SCALE`,
+     default `0.7` — a 24 MP image becomes ~4.2k × 2.8k and peaks
+     around 5.5 GB VRAM during SCUNet on a 6 GB card): SCUNet denoise
+     (blended at `RAWCURATOR_ENHANCE_DENOISE_STRENGTH`, default
+     `0.75`), Real-ESRGAN x2 (blended at
+     `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY`, default `0.7`), and
+     CodeFormer if faces were detected (weight
+     `RAWCURATOR_ENHANCE_CODEFORMER_W`, default `0.85`). VRAM is
+     cleared between models so the 6 GB budget fits one model at a
+     time. The result is Lanczos-upsampled back to native resolution.
+   - Post-AI classical steps at native (e.g. unsharp mask, CLAHE
+     local contrast, final filmic tone map).
+5. Write a 16-bit TIFF to `photos/exported/<name>.tif`.
+6. **RAW disposition:**
+   - `keep_and_enhance` (yes) — the RAW stays in `photos/library/`,
+     alongside the new TIFF in `photos/exported/`.
+   - `enhance_only` (no) — the source RAW (still in
+     `photos/incoming/`) is **deleted** once the TIFF has been
+     written. If enhance fails before the TIFF lands on disk, the
+     original is preserved.
 
 Performance reference: 24 MP CR3 → ~48 s/photo on RTX 2060 6 GB.
 
@@ -343,15 +349,15 @@ output is meant to leave the box as-is.
 
 ### Step 5 — Collect your outputs
 
-After submit (and optionally enhance), the working tree looks like:
+After submit and enhance, the working tree looks like:
 
 ```
 photos/
-  incoming/      <- now empty (originals were moved)
-  library/       <- yes + high (kept RAWs, untouched)
-  archive/       <- yes + low originals (after enhance) + no + high RAWs
-  quarantine/    <- no + low (will be wiped by `make reset`)
-  exported/      <- enhanced 16-bit TIFFs
+  incoming/      <- empty after enhance (yes RAWs moved to library/ at submit; no RAWs deleted by enhance)
+  library/       <- yes RAWs (kept untouched)
+  archive/       <- (legacy bucket; not populated by the binary routing)
+  quarantine/    <- (legacy bucket; not populated by the binary routing)
+  exported/      <- enhanced 16-bit TIFFs (one per decided photo)
   jpeg/          <- share-ready JPEGs (if you ran `make export-jpeg`)
 ```
 
@@ -361,11 +367,9 @@ system intentionally has no backup story — that is your job. Example:
 ```bash
 DEST=~/photos/2026-05-shoot
 mkdir -p "$DEST"
-rsync -a photos/library/ "$DEST/library/"
+rsync -a photos/library/  "$DEST/library/"
 rsync -a photos/exported/ "$DEST/exported/"
 rsync -a photos/jpeg/     "$DEST/jpeg/"
-# If you want the no-but-good ones too:
-rsync -a photos/archive/  "$DEST/archive/"
 ```
 
 ### Step 6 — Reset for the next session
@@ -374,35 +378,45 @@ rsync -a photos/archive/  "$DEST/archive/"
 make reset          # asks "have you saved anything you need to keep?"
 ```
 
-Confirms then:
+`make reset` is non-interactive — it deletes immediately:
 - Deletes `cache/session.db` (and `-wal`/`-shm`).
 - Empties `cache/previews/` and `cache/thumbs/`.
 - Empties `photos/library/`, `photos/archive/`, `photos/quarantine/`,
   `photos/exported/`, `photos/jpeg/`.
-- Runs `alembic upgrade head` to give you a fresh empty schema.
+- Runs `alembic upgrade head` to give you a fresh empty schema
+  (including `quality_reports`).
 - Leaves `photos/incoming/`, `models/`, and `xmp/` alone.
 
-Skip the confirmation in scripts with `make reset` → `raw-curator reset --force`.
+The in-container CLI form (`raw-curator reset`) prompts for confirmation
+unless invoked as `raw-curator reset --force`.
 
 ---
 
 ## Tuning notes
 
-The score tier (`high` / `low`) is derived in
-[`app/decision/rules.py`](./app/decision/rules.py):
+Routing is binary (`yes`/`no`); score tier no longer affects what
+happens at submit or enhance. The `tier_from_scores` helper in
+[`app/decision/rules.py`](./app/decision/rules.py) is retained for
+**display** only:
 
 ```python
 combined = 0.6 * technical_score + 0.4 * normalized_aesthetic
 tier = "high" if combined >= 0.55 else "low"
 ```
 
-If too many photos land in `low`, lower the `0.55` threshold (or
-rebuild with a different weighting). For portrait-heavy batches, you
-likely want to raise the aesthetic weight from `0.4` to `0.5`.
-
 The cluster recommendation uses the same combined score. Override by
 manually marking a different cluster member as your `yes` in the UI —
 the decision engine respects the UI's choice, not the recommendation.
+
+The Auto Enhancement Engine's plan is driven by the per-photo
+`QualityReport` (see `app/enhancement/engine/`). To inspect what the
+engine decided for a photo, query `quality_reports` directly:
+
+```bash
+sqlite> SELECT photo_hash, score_q, score_exposure, score_dynamic_range,
+   ...> score_color, score_sharpness, score_noise
+   ...> FROM quality_reports ORDER BY score_q DESC LIMIT 10;
+```
 
 ---
 
