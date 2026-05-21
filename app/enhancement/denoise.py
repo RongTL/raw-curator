@@ -67,7 +67,8 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
         return rgb
     try:
         import torch  # type: ignore
-        from basicsr.archs.scunet_arch import SCUNet  # type: ignore
+
+        from app.enhancement._scunet_arch import SCUNet
     except ImportError as exc:
         log.warning("scunet imports failed: %s — skipping denoise", exc)
         return rgb
@@ -75,7 +76,7 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if device.type == "cuda" else torch.float32
     model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(device, dtype=dtype)
-    ckpt = torch.load(str(weights), map_location="cpu")
+    ckpt = torch.load(str(weights), map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt.get("params") or ckpt.get("params_ema") or ckpt)
     model.eval()
 
