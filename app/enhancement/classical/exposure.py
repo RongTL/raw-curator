@@ -54,4 +54,8 @@ def highlight_recover(rgb: np.ndarray, amount: float = 0.5, knee: float = 0.75) 
     over = np.maximum(0.0, f - knee)
     range_ = max(1e-6, 1.0 - knee) * (1.0 - amt * 0.85)
     rolled = over / (1.0 + over / range_)
-    return np.clip(knee + rolled, 0.0, 1.0).astype(np.float32)
+    # Only re-map highlights (f > knee); leave shadows and midtones unchanged.
+    # Without the np.where guard, pixels below knee collapse to `knee + 0 = knee`,
+    # flattening every shadow/midtone to a constant 0.78 plateau.
+    rolled_full = np.clip(knee + rolled, 0.0, 1.0)
+    return np.where(f > knee, rolled_full, f).astype(np.float32)
