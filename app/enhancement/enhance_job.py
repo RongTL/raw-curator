@@ -189,12 +189,34 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
         full_tiff.unlink()
     except OSError:
         pass
+
+    # Sanity-check the output before deleting the source RAW on the enhance_only
+    # path. A May 2026 incident destroyed 10 originals because a buggy classical
+    # step collapsed mid-toned inputs to mean ~0.05; the deletion guard only
+    # checked that the file existed, not that it was a plausible image.
     if photo.get("action") == "enhance_only" and out.exists():
-        try:
-            src.unlink()
-            log.info("deleted no-RAW source after enhance: %s", src)
-        except OSError as exc:
-            log.warning("failed to delete no-RAW source %s: %s", src, exc)
+        input_mean = float(rgb_f01.mean())
+        output_mean = float(result_f01.mean())
+        output_std = float(result_f01.std())
+        ratio = output_mean / max(input_mean, 1e-6)
+        looks_broken = (
+            output_mean < 0.05
+            or output_std < 0.02
+            or (input_mean > 0.10 and ratio < 0.5)
+        )
+        if looks_broken:
+            log.error(
+                "REFUSING to delete source RAW for %s: enhanced output looks broken "
+                "(input_mean=%.3f, output_mean=%.3f, output_std=%.3f, ratio=%.2f). "
+                "Inspect %s and re-run enhancement after fixing.",
+                src.name, input_mean, output_mean, output_std, ratio, out,
+            )
+        else:
+            try:
+                src.unlink()
+                log.info("deleted no-RAW source after enhance: %s", src)
+            except OSError as exc:
+                log.warning("failed to delete no-RAW source %s: %s", src, exc)
     return out
 
 

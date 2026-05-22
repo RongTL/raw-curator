@@ -42,9 +42,9 @@ def global_compress(rgb: np.ndarray, strength: float = 0.5) -> np.ndarray:
         return rgb
     s = float(np.clip(strength, 0.0, 1.0))
     f = np.clip(rgb, 0.0, 1.0).astype(np.float32)
+    # The compression curve already preserves endpoints (f=0 -> 0, f=1 -> 1) and
+    # gently darkens midtones. Re-normalizing by (min, max) afterwards was a bug:
+    # on narrow-range inputs (e.g. a flat plateau from an upstream step) it
+    # stretched [0.715, 0.833] across [0, 1], collapsing the mean to ~0.
     compressed = f / (1.0 + s * f * (1.0 - f))
-    lo = compressed.min()
-    hi = compressed.max()
-    if hi - lo > 1e-6:
-        compressed = (compressed - lo) / (hi - lo)
     return np.clip(compressed, 0.0, 1.0).astype(np.float32)
