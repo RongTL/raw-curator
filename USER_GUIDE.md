@@ -264,9 +264,10 @@ For each photo:
    - Pre-AI classical steps at full native resolution in float32
      (e.g. exposure gamma, shadow lift, highlight recover, backlit
      recovery, gray-world WB, saturation, global tone compression).
-   - AI steps on a downscaled copy (`RAWCURATOR_ENHANCE_AI_SCALE`,
-     default `0.85` — a 24 MP image becomes ~5.1k × 3.4k and peaks
-     around 5 GB VRAM during SCUNet on a 6 GB card): SCUNet denoise
+   - AI steps at native resolution (`RAWCURATOR_ENHANCE_AI_SCALE`,
+     default `1.0` — a 24 MP image stays ~6k × 4k and peaks around
+     5.5 GB VRAM during SCUNet on a 6 GB card; drop to `0.85`/`0.7`
+     if OOM): SCUNet denoise
      (blended at `RAWCURATOR_ENHANCE_DENOISE_STRENGTH`, default
      `0.75`), Real-ESRGAN x2 (blended at
      `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY`, default `0.7`), and
@@ -483,7 +484,7 @@ sqlite> SELECT hash, technical_score, aesthetic_score FROM photos ORDER BY techn
 | `make image` hangs on pyiqa install        | Network egress to pytorch CDN; rerun with `--no-cache` if it stays stuck |
 | `nvidia-smi` works on host but not in container | Re-run `host-bootstrap.sh`; verify `/etc/cdi/nvidia.yaml` exists      |
 | `make score` reports CUDA OOM              | Lower `RAWCURATOR_CLIP_BATCH` (default 8) → 4                          |
-| `make enhance` reports CUDA OOM mid-photo  | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (default 0.85) → 0.7 → 0.5        |
+| `make enhance` reports CUDA OOM mid-photo  | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (default 1.0) → 0.85 → 0.7 → 0.5  |
 | UI thumbnails 404                          | Cache dir not writable — `chmod -R u+rw cache/` on the host           |
 | Submit fails partway                       | DB is in WAL mode and transactional; rerun `make submit`; check `decisions.applied` |
 | Enhance output looks oversharpened         | Lower `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` toward `0.3` (softer); for faces, *raise* `RAWCURATOR_ENHANCE_CODEFORMER_W` toward `0.95` (higher w = more faithful to original skin) |
