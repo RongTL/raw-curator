@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     phash_hamming_threshold: int = 8
     clip_cosine_threshold: float = 0.92
 
-    enhance_ai_scale: float = 0.85  # 24MP -> ~5.1kx3.4k for SCUNet; ~5 GB on 6 GB cards. Lower to 0.7 if OOM.
-    enhance_target_res: str = "native"
+    enhance_ai_scale: float = 1.0  # AI sees full native (24MP -> ~6kx4k). Lower to 0.85/0.7 if OOM.
+    enhance_target_res: str = "200%"  # Keep Real-ESRGAN's x2 output (12kx8k); preserves AI detail.
     enhance_denoise: bool = True
     enhance_denoise_strength: float = 0.75  # 1.0 = full SCUNet; <1 keeps natural micro-texture
     enhance_face_restore: bool = True
