@@ -171,7 +171,7 @@ The most useful overrides:
 
 | Variable                          | Default       | Purpose                                                                 |
 |-----------------------------------|---------------|-------------------------------------------------------------------------|
-| `RAWCURATOR_ENHANCE_AI_SCALE`     | `0.7`         | Pre-AI downscale factor. `0.7` peaks ~5.5 GB on a 6 GB card (24 MP source). Lower to `0.5` if other CUDA processes share the GPU; raise toward `0.75` only on 8 GB+ cards. |
+| `RAWCURATOR_ENHANCE_AI_SCALE`     | `0.85`        | Pre-AI downscale factor. `0.85` peaks ~5 GB on a 6 GB card (24 MP source) and feeds Real-ESRGAN closer-to-native pixels for sharper output. Drop to `0.7` (pre-2026-05-23 default) if other CUDA processes share the GPU; lower further (`0.5`) if OOM. |
 | `RAWCURATOR_ENHANCE_DENOISE`      | `true`        | Skip SCUNet if false                                                    |
 | `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` | `0.75`    | Blends SCUNet output with the input. `1.0` is full denoise; `<1` retains natural micro-texture so the image doesn't look plastic. |
 | `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` | `0.7` | Blends Real-ESRGAN output with a Lanczos upscale. `1.0` is full AI sharpening (riskier on skin/sky/foliage); `0.7` keeps most detail recovery while softening AI artifacts; drop to `0.5` for very soft output. |
@@ -234,7 +234,7 @@ no-op TIFF).
 | `Failed to initialize NVML` inside container   | `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`            |
 | `make image` is slow                           | Expected — CUDA base + pyiqa + insightface push the image to ~27 GB. Cached on rebuild. |
 | `make run` OOM during scoring                  | Lower `RAWCURATOR_CLIP_BATCH=4`; ensure no other CUDA process is resident |
-| `make enhance` OOM                             | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (0.7 → 0.5 → 0.4)                    |
+| `make enhance` OOM                             | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (0.85 → 0.7 → 0.5)                   |
 | UI shows "loading…" forever                    | Check `podman logs <ui-container>`; usually `make reset` was skipped and the DB schema is missing |
 | `darktable-cli` error "output file already exists" | Already worked around — if you see this, the workaround in `app/enhancement/develop_full.py` regressed |
 

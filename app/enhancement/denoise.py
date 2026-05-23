@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 # output tiles padded with reflective context so the model sees enough beyond
 # each tile to avoid edge artifacts. multiple=64 satisfies SCUNet's window
 # attention and 3-stage downsample divisibility.
-_TILE = int(os.environ.get("RAWCURATOR_SCUNET_TILE", "384"))
+_TILE = int(os.environ.get("RAWCURATOR_SCUNET_TILE", "512"))
 _PAD = int(os.environ.get("RAWCURATOR_SCUNET_TILE_PAD", "32"))
 _MULTIPLE = 64
 
