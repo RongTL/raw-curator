@@ -81,7 +81,7 @@ Every decided photo flows through the enhancement chain. `make enhance` queries 
 All knobs are env vars with prefix `RAWCURATOR_`, loaded via pydantic-settings in `app/config.py`. The container reads them from `.env` (which `compose.yaml` injects via `env_file`, not just `${VAR}` interpolation — see commit `f098c14`). Bind-mount points are fixed: `/data/{photos,cache,models,xmp}`.
 
 VRAM-sensitive defaults are tuned for a 6 GB RTX 2060:
-- `RAWCURATOR_ENHANCE_AI_SCALE=0.7` — pre-AI downscale. Drop to `0.5` if OOM.
+- `RAWCURATOR_ENHANCE_AI_SCALE=0.85` — pre-AI downscale. Drop to `0.7` (pre-2026-05-23 default) or `0.5` if OOM.
 - `RAWCURATOR_CLIP_BATCH=8` — lower to `4` on OOM during scoring.
 - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` set in `compose.yaml` to reduce fragmentation across the SCUNet → Real-ESRGAN → CodeFormer stages.
 

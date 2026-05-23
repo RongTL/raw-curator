@@ -26,7 +26,7 @@ def _lanczos_x2(rgb: np.ndarray) -> np.ndarray:
 
 def realesrgan_x2(
     rgb: np.ndarray,
-    tile_size: int = 512,
+    tile_size: int = 768,
     tile_pad: int = 16,
     fidelity: float = 1.0,
 ) -> np.ndarray:
