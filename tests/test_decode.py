@@ -13,6 +13,8 @@ from app.ingest import decode
 
 
 def test_classify_raw_extensions() -> None:
+    assert decode.classify_kind(Path("a.cr2")) == decode.FileKind.RAW
+    assert decode.classify_kind(Path("a.CR2")) == decode.FileKind.RAW
     assert decode.classify_kind(Path("a.CR3")) == decode.FileKind.RAW
     assert decode.classify_kind(Path("a.nef")) == decode.FileKind.RAW
     assert decode.classify_kind(Path("a.arw")) == decode.FileKind.RAW
@@ -24,6 +26,38 @@ def test_classify_image_extensions() -> None:
     assert decode.classify_kind(Path("a.tif")) == decode.FileKind.TIFF
     assert decode.classify_kind(Path("a.tiff")) == decode.FileKind.TIFF
     assert decode.classify_kind(Path("a.png")) == decode.FileKind.PNG
+
+
+def test_classify_prefers_content_over_extension(tmp_path: Path) -> None:
+    """A JPEG saved with a RAW extension (e.g. a Picasa/Google Photos export
+    renamed to .CR2) must classify as JPEG, not RAW — content beats extension."""
+    arr = np.full((12, 16, 3), 200, dtype=np.uint8)
+    src = tmp_path / "IMG_misnamed.CR2"
+    Image.fromarray(arr).save(src, format="JPEG", quality=90)
+    assert decode.classify_kind(src) == decode.FileKind.JPEG
+
+
+def test_classify_png_with_raw_extension(tmp_path: Path) -> None:
+    arr = np.full((8, 8, 3), 50, dtype=np.uint8)
+    src = tmp_path / "shot.nef"
+    Image.fromarray(arr).save(src, format="PNG")
+    assert decode.classify_kind(src) == decode.FileKind.PNG
+
+
+def test_classify_nonexistent_raw_falls_back_to_extension() -> None:
+    """When the file can't be read, the extension still decides, so genuine
+    RAW paths keep classifying as RAW."""
+    assert decode.classify_kind(Path("missing.cr2")) == decode.FileKind.RAW
+
+
+def test_decode_preview_jpeg_with_raw_extension(tmp_path: Path) -> None:
+    """A misnamed JPEG must decode via the JPEG path instead of crashing in LibRaw."""
+    arr = np.full((10, 14, 3), 128, dtype=np.uint8)
+    src = tmp_path / "IMG_x.CR2"
+    Image.fromarray(arr).save(src, format="JPEG", quality=92)
+    out = decode.decode_preview(src)
+    assert out.dtype == np.uint8
+    assert out.shape == (10, 14, 3)
 
 
 def test_classify_unknown() -> None:
@@ -42,6 +76,7 @@ def test_heic_classification_respects_pillow_heif() -> None:
 
 def test_all_supported_exts_is_union() -> None:
     exts = decode.all_supported_exts()
+    assert ".cr2" in exts
     assert ".cr3" in exts
     assert ".jpg" in exts
     assert ".tif" in exts

@@ -52,9 +52,17 @@ def heic_available() -> bool:
     return _HEIC_OK
 
 
-def classify_kind(path: Path) -> FileKind | None:
-    """Return the FileKind for `path`, or None if the extension isn't supported."""
-    ext = path.suffix.lower()
+# Magic-byte signatures for content sniffing. An extension can lie — e.g. a
+# JPEG exported by Picasa/Google Photos saved with a .CR2 suffix — so for the
+# unambiguous display formats we trust the bytes over the extension.
+_JPEG_MAGIC = b"\xff\xd8\xff"
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_HEIC_BRANDS: frozenset[bytes] = frozenset(
+    {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"heif", b"mif1", b"msf1"}
+)
+
+
+def _kind_from_ext(ext: str) -> FileKind | None:
     if ext in RAW_EXTS:
         return FileKind.RAW
     if ext in JPEG_EXTS:
@@ -62,10 +70,50 @@ def classify_kind(path: Path) -> FileKind | None:
     if ext in TIFF_EXTS:
         return FileKind.TIFF
     if ext in HEIC_EXTS:
-        return FileKind.HEIC if _HEIC_OK else None
+        return FileKind.HEIC
     if ext in PNG_EXTS:
         return FileKind.PNG
     return None
+
+
+def _sniff_kind(path: Path) -> FileKind | None:
+    """Detect format from magic bytes. Returns None when the signature is
+    ambiguous — TIFF-family magic covers real TIFF *and* CR2/NEF/ARW/DNG raws —
+    or the file can't be read, so the caller falls back to the extension."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(16)
+    except OSError:
+        return None
+    if head.startswith(_JPEG_MAGIC):
+        return FileKind.JPEG
+    if head.startswith(_PNG_MAGIC):
+        return FileKind.PNG
+    if len(head) >= 12 and head[4:8] == b"ftyp" and head[8:12] in _HEIC_BRANDS:
+        return FileKind.HEIC
+    return None
+
+
+def classify_kind(path: Path) -> FileKind | None:
+    """Return the FileKind for `path`, or None if it isn't supported.
+
+    Content (magic bytes) wins over the extension when they disagree, so a
+    misnamed file (e.g. a JPEG saved as .CR2) routes to the right decoder
+    instead of crashing the RAW path in LibRaw.
+    """
+    ext_kind = _kind_from_ext(path.suffix.lower())
+    sniffed = _sniff_kind(path)
+    kind = sniffed if sniffed is not None else ext_kind
+    if sniffed is not None and ext_kind is not None and sniffed != ext_kind:
+        log.warning(
+            "%s has extension %r but its content is %s; using content.",
+            path,
+            path.suffix,
+            sniffed.value,
+        )
+    if kind == FileKind.HEIC and not _HEIC_OK:
+        return None
+    return kind
 
 
 def all_supported_exts() -> frozenset[str]:
