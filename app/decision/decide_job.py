@@ -23,6 +23,7 @@ from app.db import session_scope
 from app.decision.executor import Move, apply_moves
 from app.decision.rules import resolve
 from app.models import Decision, Photo
+from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -57,7 +58,11 @@ def apply_decisions() -> None:
 
             new_source_path = str(src)
             if rule.library_subdir is not None:
-                dst = settings.photos / rule.library_subdir / src.name
+                dst = (
+                    settings.photos
+                    / rule.library_subdir
+                    / relative_subpath(src, settings.photos)
+                )
                 moves.append(Move(src=src, dst=dst))
                 new_source_path = str(dst)
 
