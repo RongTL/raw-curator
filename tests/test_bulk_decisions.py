@@ -55,3 +55,19 @@ def test_stage_all_returns_zero_for_empty_batch(tmp_db: Session) -> None:
 def test_stage_all_rejects_invalid_selected(tmp_db: Session) -> None:
     with pytest.raises(ValueError):
         stage_all(tmp_db, "maybe")
+
+
+def test_stage_all_mixed_batch_counts_only_non_applied(tmp_db: Session) -> None:
+    _add_photo(tmp_db, "missing")  # no decision row
+    _add_photo(tmp_db, "pending")
+    tmp_db.add(Decision(photo_hash="pending", selected="yes", applied=0))
+    _add_photo(tmp_db, "applied")
+    tmp_db.add(Decision(photo_hash="applied", selected="yes", applied=1))
+    tmp_db.flush()
+
+    staged = stage_all(tmp_db, "no")
+
+    assert staged == 2  # missing (created) + pending (updated); applied skipped
+    assert tmp_db.get(Decision, "missing").selected == "no"
+    assert tmp_db.get(Decision, "pending").selected == "no"
+    assert tmp_db.get(Decision, "applied").selected == "yes"
