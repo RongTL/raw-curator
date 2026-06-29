@@ -450,7 +450,7 @@
         } finally {
           setBusy(false);
         }
-      }, [items, refreshAll]);
+      }, [refreshAll]);
 
       useKeyboardShortcuts(useMemo(() => openHash ? {} : ({
         Enter: () => items?.length && setOpenHash(items[0].hash),
