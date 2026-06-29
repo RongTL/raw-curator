@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
+
 from app.paths import relative_subpath
 
 
@@ -32,7 +34,7 @@ def test_file_directly_at_root_has_no_subfolder() -> None:
     assert relative_subpath(src, photos) == Path("IMG_1234.CR3")
 
 
-def test_unknown_root_falls_back_to_basename_and_warns(caplog) -> None:
+def test_unknown_root_falls_back_to_basename_and_warns(caplog: pytest.LogCaptureFixture) -> None:
     photos = Path("/data/photos")
     src = Path("/somewhere/else/IMG_9999.CR3")
     with caplog.at_level(logging.WARNING):
