@@ -126,6 +126,28 @@ def test_list_candidates_partitions_by_source(
     assert jpeg_job._list_candidates("all") == [raw, tif]
 
 
+def test_dest_for_preserves_subfolders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(jpeg_job.settings, "photos", tmp_path)
+    monkeypatch.setattr(jpeg_job.settings, "jpeg_subdir", "jpeg")
+    raw = tmp_path / "library" / "2025" / "wedding" / "IMG_0001.CR3"
+    tif = tmp_path / "exported" / "2025" / "wedding" / "IMG_0001.tif"
+    assert jpeg_job._dest_for(raw) == tmp_path / "jpeg" / "2025" / "wedding" / "IMG_0001.jpg"
+    assert jpeg_job._dest_for(tif) == tmp_path / "jpeg" / "2025" / "wedding" / "IMG_0001.jpg"
+
+
+def test_list_candidates_recurses_subfolders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nested = tmp_path / "library" / "2025" / "trip"
+    nested.mkdir(parents=True)
+    raw = nested / "A.CR3"
+    raw.write_bytes(b"\x00")
+    monkeypatch.setattr(jpeg_job.settings, "photos", tmp_path)
+    assert jpeg_job._list_candidates("library") == [raw]
+
+
 def test_run_jpeg_export_rejects_invalid_source() -> None:
     with pytest.raises(ValueError):
         jpeg_job.run_jpeg_export(source="bogus")

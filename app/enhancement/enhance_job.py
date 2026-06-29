@@ -41,6 +41,7 @@ from app.enhancement.engine.plan import QualityReport
 from app.enhancement.engine.runner import run_plan
 from app.enhancement.pack_tiff import write_tiff16
 from app.models import Decision, Face, Photo, PhotoQualityReport
+from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -181,7 +182,11 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
 
     result_f01 = run_plan(rgb_f01, plan, native_size=(native_w, native_h))
 
-    out = settings.photos / "exported" / (src.stem + ".tif")
+    out = (
+        settings.photos
+        / "exported"
+        / relative_subpath(src, settings.photos).with_suffix(".tif")
+    )
     # write_tiff16 expects uint8 currently; the existing wrapper handles conversion.
     write_tiff16((result_f01 * 65535.0 + 0.5).clip(0, 65535).astype(np.uint16), out)
 
