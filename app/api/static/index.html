@@ -61,6 +61,15 @@
         if (!r.ok) throw new Error(`submit ${r.status}`);
         return r.json();
       },
+      decideAll: async (selected) => {
+        const r = await fetch(`/api/decide/all`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selected }),
+        });
+        if (!r.ok) throw new Error(`decideAll ${r.status}`);
+        return r.json();
+      },
     };
 
     // ---------- Hooks ----------
@@ -338,7 +347,7 @@
         </div>`;
     }
 
-    function Header({ count, pendingCount, sort, setSort, view, setView, onSubmit, busy }) {
+    function Header({ count, pendingCount, sort, setSort, view, setView, onSubmit, onMarkAllNo, busy }) {
       const tabBtn = (id, label) => html`
         <button
           onClick=${() => setView(id)}
@@ -364,6 +373,10 @@
                 <option value="score">score (technical)</option>
                 <option value="captured">captured</option>
               </select>`}
+            <button onClick=${onMarkAllNo} disabled=${busy || count === 0}
+                    class="px-3 py-1.5 rounded bg-rose-800 hover:bg-rose-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
+              don't keep any RAW
+            </button>
             <button onClick=${onSubmit} disabled=${busy || pendingCount === 0}
                     class="px-3 py-1.5 rounded bg-emerald-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
               ${busy ? "submitting…" : `submit batch (${pendingCount})`}
@@ -425,6 +438,21 @@
         }
       }, [pending, refreshAll]);
 
+      const onMarkAllNo = useCallback(async () => {
+        const n = items?.length ?? 0;
+        if (!confirm(`Mark all ${n} photos as NO? Originals will NOT be kept in library — every RAW is enhanced, then the source RAW is deleted after processing. You can still review before Submit.`)) return;
+        setBusy(true);
+        try {
+          const res = await api.decideAll("no");
+          setStatus(`Marked ${res.staged} photo(s) as no.`);
+          refreshAll();
+        } catch (e) {
+          setStatus(`Mark all failed: ${e.message}`);
+        } finally {
+          setBusy(false);
+        }
+      }, [items, refreshAll]);
+
       useKeyboardShortcuts(useMemo(() => openHash ? {} : ({
         Enter: () => items?.length && setOpenHash(items[0].hash),
         s: () => onSubmit(),
@@ -446,7 +474,7 @@
         <${Fragment}>
           <${Header} count=${items?.length ?? 0} pendingCount=${pending?.length ?? 0}
                      sort=${sort} setSort=${setSort} view=${view} setView=${setView}
-                     onSubmit=${onSubmit} busy=${busy} />
+                     onSubmit=${onSubmit} onMarkAllNo=${onMarkAllNo} busy=${busy} />
           ${status && html`<div class="px-4 py-1 text-xs bg-zinc-900 border-b border-zinc-800">${status}</div>`}
           ${body}
           ${openHash && html`<${DetailModal} hash=${openHash}
