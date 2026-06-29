@@ -75,6 +75,7 @@ Every decided photo flows through the enhancement chain. `make enhance` queries 
 - **SQLite + sqlite-vec, WAL mode** at `cache/session.db`. Engine setup in `app/db.py` loads the `sqlite-vec` extension on every connection. Schema in `app/models.py` (SQLAlchemy 2.0 declarative). Migrations via Alembic in `db/migrations/`.
 - `photo_embeddings.vec` is a raw `LargeBinary` blob of float16 CLIP features (768-dim by default).
 - All paths stored in the DB are container-side absolute paths under `/data/`.
+- Output folders mirror the subfolder layout found under `photos/incoming/`: a file at `incoming/<sub>/X.CR3` lands at `library/<sub>/X.CR3`, `exported/<sub>/X.tif`, and `jpeg/<sub>/X.jpg`. Path mirroring is centralized in `app/paths.py::relative_subpath`; the submit/enhance/export phases all derive their destination from it (against whichever of `incoming`/`library`/`exported` the source currently lives under).
 
 ### Configuration
 
