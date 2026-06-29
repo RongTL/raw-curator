@@ -11,6 +11,7 @@ from rich.progress import Progress
 
 from app.config import settings
 from app.export.jpeg_writer import convert_image_to_jpeg, is_convertible
+from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -24,6 +25,7 @@ def _convert_one(
     Returns (dest_name, error_message). error_message is None on success.
     """
     try:
+        Path(dest_str).parent.mkdir(parents=True, exist_ok=True)
         convert_image_to_jpeg(
             Path(src_str),
             Path(dest_str),
@@ -49,19 +51,20 @@ def _list_candidates(source: str) -> list[Path]:
         lib = photos / "library"
         if lib.is_dir():
             items.extend(
-                p for p in sorted(lib.iterdir()) if p.is_file() and is_convertible(p)
+                p for p in sorted(lib.rglob("*")) if p.is_file() and is_convertible(p)
             )
     if source in {"exported", "all"}:
         exp = photos / "exported"
         if exp.is_dir():
             items.extend(
-                p for p in sorted(exp.iterdir()) if p.is_file() and is_convertible(p)
+                p for p in sorted(exp.rglob("*")) if p.is_file() and is_convertible(p)
             )
     return items
 
 
 def _dest_for(src: Path) -> Path:
-    return settings.photos / settings.jpeg_subdir / (src.stem + ".jpg")
+    rel = relative_subpath(src, settings.photos).with_suffix(".jpg")
+    return settings.photos / settings.jpeg_subdir / rel
 
 
 def run_jpeg_export(
