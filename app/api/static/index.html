@@ -439,8 +439,7 @@
       }, [pending, refreshAll]);
 
       const onMarkAllNo = useCallback(async () => {
-        const n = items?.length ?? 0;
-        if (!confirm(`Mark all ${n} photos as NO? Originals will NOT be kept in library — every RAW is enhanced, then the source RAW is deleted after processing. You can still review before Submit.`)) return;
+        if (!confirm(`Mark EVERY photo in the batch as NO? Originals will NOT be kept in library — every RAW is enhanced, then the source RAW is deleted after processing. You can still review before Submit.`)) return;
         setBusy(true);
         try {
           const res = await api.decideAll("no");
