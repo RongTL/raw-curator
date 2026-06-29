@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.db import session_scope
+from app.decision.bulk import stage_all
 from app.models import Decision, Photo
 
 router = APIRouter()
@@ -18,6 +19,10 @@ class DecisionIn(BaseModel):
     stars: int | None = None
     favorite: bool | None = None
     note: str | None = None
+
+
+class BulkDecisionIn(BaseModel):
+    selected: str
 
 
 @router.post("/")
@@ -38,6 +43,16 @@ def stage_decision(d: DecisionIn) -> dict:
         if d.note is not None:
             existing.note = d.note
         return {"ok": True}
+
+
+@router.post("/all")
+def stage_all_decisions(d: BulkDecisionIn) -> dict:
+    try:
+        with session_scope() as sess:
+            staged = stage_all(sess, d.selected)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "staged": staged}
 
 
 @router.get("/pending")
