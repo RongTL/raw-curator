@@ -13,14 +13,15 @@ router = APIRouter()
 
 
 @router.get("/")
-def list_queue(sort: str = "score", limit: int = 500) -> list[dict]:
+def list_queue(sort: str = "score", limit: int | None = None) -> list[dict]:
+    """Return the full batch by default. `limit` is an optional safety cap;
+    the UI paginates client-side (infinite scroll), so no server cap is needed."""
     items: list[dict] = []
     with session_scope() as sess:
-        rows = sess.execute(
-            select(Photo, Decision)
-            .outerjoin(Decision, Photo.hash == Decision.photo_hash)
-            .limit(limit)
-        ).all()
+        stmt = select(Photo, Decision).outerjoin(Decision, Photo.hash == Decision.photo_hash)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        rows = sess.execute(stmt).all()
         for p, d in rows:
             items.append(
                 {

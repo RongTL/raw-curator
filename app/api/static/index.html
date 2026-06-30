@@ -23,7 +23,12 @@
     import htm from "https://esm.sh/htm@3.1.1";
 
     const html = htm.bind(React.createElement);
-    const { Fragment } = React;
+    const { Fragment, useRef } = React;
+
+    // How many tiles the "All" grid renders per infinite-scroll page. The
+    // server returns the whole batch; the client mounts it incrementally so a
+    // multi-thousand-photo batch doesn't create thousands of <img> at once.
+    const PAGE_SIZE = 200;
 
     // ---------- API client ----------
     const api = {
@@ -150,6 +155,35 @@
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 p-2">
           ${items.map(p => html`<${PhotoTile} key=${p.hash} photo=${p} onClick=${() => onSelect(p.hash)} />`)}
         </div>`;
+    }
+
+    // Infinite-scroll grid: renders items.slice(0, visible) and grows `visible`
+    // via onMore whenever a bottom sentinel scrolls into view. Re-observing on
+    // every `visible`/length change lets it keep filling until the sentinel is
+    // pushed off-screen (handles short pages that don't cover the viewport).
+    function PagedGrid({ items, visible, onMore, onSelect }) {
+      const sentinel = useRef(null);
+      useEffect(() => {
+        const el = sentinel.current;
+        if (!el) return;
+        const ob = new IntersectionObserver(
+          (entries) => { if (entries[0].isIntersecting) onMore(); },
+          { rootMargin: "600px" }
+        );
+        ob.observe(el);
+        return () => ob.disconnect();
+      }, [onMore, visible, items.length]);
+
+      const shown = items.slice(0, visible);
+      const hasMore = visible < items.length;
+      return html`
+        <${Fragment}>
+          <${PhotoGrid} items=${shown} onSelect=${onSelect} />
+          ${hasMore && html`
+            <div ref=${sentinel} class="py-6 text-center text-xs text-zinc-500">
+              loading more… ${shown.length} of ${items.length}
+            </div>`}
+        </${Fragment}>`;
     }
 
     function ClusterSection({ cluster, onSelect }) {
@@ -347,7 +381,8 @@
         </div>`;
     }
 
-    function Header({ count, pendingCount, sort, setSort, view, setView, onSubmit, onMarkAllNo, busy }) {
+    function Header({ count, shown, pendingCount, sort, setSort, view, setView, onSubmit, onMarkAllNo, busy }) {
+      const truncated = shown != null && shown < count;
       const tabBtn = (id, label) => html`
         <button
           onClick=${() => setView(id)}
@@ -358,7 +393,9 @@
         <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
           <div class="flex items-baseline gap-4">
             <h1 class="text-lg font-semibold">raw-curator</h1>
-            <span class="text-sm text-zinc-400">${count} photo${count === 1 ? "" : "s"}</span>
+            <span class="text-sm text-zinc-400">
+              ${count} photo${count === 1 ? "" : "s"}${truncated ? ` (showing ${shown})` : ""}
+            </span>
             <span class="text-sm text-amber-400">${pendingCount} pending decision${pendingCount === 1 ? "" : "s"}</span>
           </div>
           <div class="flex items-center gap-2">
@@ -394,6 +431,11 @@
       const [openHash, setOpenHash] = useState(null);
       const [busy, setBusy] = useState(false);
       const [status, setStatus] = useState(null);
+      const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+      // Reset the infinite-scroll window when the dataset or its order changes.
+      useEffect(() => { setVisibleCount(PAGE_SIZE); }, [view, sort]);
+      const loadMore = useCallback(() => setVisibleCount(c => c + PAGE_SIZE), []);
 
       // In cluster view, the linear nav order is cluster1 -> cluster2 -> ... -> unclustered.
       const items = useMemo(() => {
@@ -466,12 +508,15 @@
         if (items.length === 0) {
           return html`<div class="p-8 text-zinc-500">No photos yet. Run <span class="kbd">make ingest</span>.</div>`;
         }
-        return html`<${PhotoGrid} items=${items} onSelect=${setOpenHash} />`;
+        return html`<${PagedGrid} items=${items} visible=${visibleCount}
+                                   onMore=${loadMore} onSelect=${setOpenHash} />`;
       })();
 
       return html`
         <${Fragment}>
-          <${Header} count=${items?.length ?? 0} pendingCount=${pending?.length ?? 0}
+          <${Header} count=${items?.length ?? 0}
+                     shown=${(view === "all" && items) ? Math.min(visibleCount, items.length) : null}
+                     pendingCount=${pending?.length ?? 0}
                      sort=${sort} setSort=${setSort} view=${view} setView=${setView}
                      onSubmit=${onSubmit} onMarkAllNo=${onMarkAllNo} busy=${busy} />
           ${status && html`<div class="px-4 py-1 text-xs bg-zinc-900 border-b border-zinc-800">${status}</div>`}
