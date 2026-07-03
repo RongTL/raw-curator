@@ -24,6 +24,12 @@ def assert_gpu_or_skip() -> bool:
 
 
 def warmup() -> None:
+    # Pin torch's intra-op pool to the SMT thread count so CPU-side
+    # preprocessing in GPU stages uses the whole R3 3100 without
+    # oversubscribing (torch defaults to physical cores only).
+    from app.config import settings
+
+    torch.set_num_threads(max(1, settings.cpu_workers))
     if cuda_available():
         torch.cuda.empty_cache()
 
