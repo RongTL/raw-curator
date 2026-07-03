@@ -16,3 +16,9 @@ async def reset_session() -> None:
     in a worker thread to keep the event loop responsive.
     """
     await asyncio.to_thread(end_session, True)
+
+    from app.db import engine
+
+    # The wipe unlinked session.db; pooled connections still point at the old
+    # inode and would serve stale data. Drop them so new queries reopen the file.
+    engine.dispose()
