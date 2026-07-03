@@ -47,6 +47,8 @@ realesrgan = "^0.3"
 basicsr = "^1.4"
 facexlib = "^0.3"
 codeformer-pip = "^0.0.4"
+psutil = "^7.0"
+nvidia-ml-py = "^12.560"
 
 [[tool.poetry.source]]
 name = "pytorch-cu124"
