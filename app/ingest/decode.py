@@ -16,6 +16,17 @@ import rawpy
 import tifffile
 from PIL import Image, ImageOps
 
+# Extension sets live in the constants-only `app.ingest.extensions` module so
+# lightweight callers can use them without this module's heavy deps.
+# Re-exported here for existing importers (walker, jpeg_writer, ...).
+from app.ingest.extensions import (
+    HEIC_EXTS,
+    JPEG_EXTS,
+    PNG_EXTS,
+    RAW_EXTS,
+    TIFF_EXTS,
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -25,17 +36,6 @@ class FileKind(str, Enum):
     TIFF = "tiff"
     HEIC = "heic"
     PNG = "png"
-
-
-RAW_EXTS: frozenset[str] = frozenset(
-    {".cr2", ".cr3", ".crw", ".nef", ".nrw", ".arw", ".srw", ".raf", ".orf",
-     ".rw2", ".dng", ".pef", ".raw", ".x3f", ".rwl", ".3fr", ".iiq", ".mef",
-     ".mos", ".mrw", ".sr2", ".srf"}
-)
-JPEG_EXTS: frozenset[str] = frozenset({".jpg", ".jpeg"})
-TIFF_EXTS: frozenset[str] = frozenset({".tif", ".tiff"})
-HEIC_EXTS: frozenset[str] = frozenset({".heic", ".heif"})
-PNG_EXTS: frozenset[str] = frozenset({".png"})
 
 
 _HEIC_OK = False

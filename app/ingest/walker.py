@@ -9,7 +9,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from app.ingest.decode import RAW_EXTS, all_supported_exts
+from app.ingest.decode import all_supported_exts
+from app.ingest.extensions import RAW_EXTS
 
 RAW_SUFFIXES: frozenset[str] = RAW_EXTS
 
