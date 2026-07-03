@@ -162,6 +162,7 @@ def test_reset_in_progress_blocks_run(client: TestClient, monkeypatch) -> None:
         time.sleep(0.02)
     assert pl._resetting is True
     assert client.post("/api/pipeline/run/ingest").status_code == 409
+    assert client.post("/api/pipeline/reset", json={"confirm": "RESET"}).status_code == 409
     release.set()
     t.join(timeout=10)
     assert codes["reset"] == 200
