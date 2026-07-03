@@ -28,3 +28,5 @@ tests/data/
 
 .env
 .DS_Store
+
+.superpowers/
