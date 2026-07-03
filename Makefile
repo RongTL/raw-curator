@@ -17,7 +17,7 @@ help:
 	@echo "  enhance         Hybrid RAW -> AI -> TIFF for Yes+Low set"
 	@echo "  export-jpeg     Convert library RAWs + exported TIFFs to share-ready JPEGs"
 	@echo "  run             Ingest -> filter -> score -> cluster (autopilot)"
-	@echo "  serve           FastAPI + UI on http://localhost:8080"
+	@echo "  serve           Control Center UI on http://localhost:8080 (runs all stages)"
 	@echo "  shell           Drop into a shell in the app container"
 	@echo "  test            pytest -q inside the container"
 	@echo "  lint            ruff check"

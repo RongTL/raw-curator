@@ -33,6 +33,10 @@ make typecheck        # mypy app/
 make shell            # bash inside the app container
 ```
 
+The web UI can drive the whole pipeline (ingest → export-jpeg, plus New-batch
+reset), so the per-stage make targets are optional; `make image` and
+`make download-models` remain host-side prerequisites.
+
 Run a single test (from inside the container or via `podman-compose run --rm app`):
 
 ```bash
@@ -53,6 +57,14 @@ The CLI is also reachable directly inside the container: `raw-curator ingest|fil
 3. **score** (`app/scoring/` + `app/embedding/`) — GPU stage. CLIP ViT-L/14 + aesthetic-predictor v2.5 + MUSIQ + MANIQA + InsightFace. Runs **stage-by-stage** (`stage=clip|iqa|faces|all`), freeing CUDA between stages so it fits a 6 GB RTX 2060.
 4. **cluster** (`app/clustering/`) — EXIF burst grouping → pHash dedupe within burst → CLIP cosine + HDBSCAN across the batch → one recommended photo per cluster.
 5. **serve** (`app/api/` + `app/ui/`) — FastAPI app exposing `/api/{queue,photo,cluster,decide,submit}` plus the static SPA from `app/api/static/`. The UI is plain HTML/JS using CDN-hosted React (no Node build step). Decisions are staged in the `decisions` table; nothing moves on disk until **Submit**. The review header also exposes a bulk **"don't keep any RAW"** control backed by `POST /api/decide/all`, which stages every photo as `no` (enhance_only) in one transaction via `app/decision/bulk.py::stage_all` (skipping already-applied rows).
+   Since the control-center rework, `serve` is the primary entry point: the UI
+   (pipeline timeline + context panel) can run every stage itself. New pieces:
+   `app/orchestrator/` (subprocess-per-stage `JobRunner` with a single global
+   job slot, two-leg `AutoRun`: ingest→cluster, then submit→enhance→export-jpeg
+   after "Submit & continue", DB-derived progress in `progress.py`),
+   `app/monitor/stats.py` (psutil + NVML sampler, 60 s rolling window, disk
+   warnings), and routes `/api/pipeline/*` + `/api/system/stats`. The frontend
+   is ES modules under `app/api/static/js/` (CDN React, no build step).
 6. **submit** (`app/decision/`) — applies staged decisions per the binary rule table in `app/decision/rules.py`. `yes` moves the RAW into `photos/library/`; `no` leaves the RAW in place so `make enhance` can still develop it. `executor.py` does the actual moves.
 7. **enhance** (`app/enhancement/`) — for every photo with `action IN ('keep_and_enhance', 'enhance_only')`, the chain is: darktable develops RAW → 16-bit linear TIFF → backlit recovery → downscale to fit 6 GB VRAM → SCUNet denoise → Real-ESRGAN x2 → (CodeFormer if faces) → upsample back to native → write 16-bit TIFF to `photos/exported/`. When `action == "enhance_only"` (the `no` path) the source RAW is deleted on disk after the TIFF is successfully written. **RAW-only**; non-RAW sources are skipped with a warning (their originals are left in place) because the AI chain expects sensor data, not 8-bit display-referred pixels.
 8. **export-jpeg** (`app/export/`) — optional final step. Develops every kept RAW in `photos/library/` and every enhanced TIFF in `photos/exported/` into share-ready JPEGs in `photos/jpeg/`. EXIF copied from source; orientation baked in. Multi-process via `ProcessPoolExecutor`.
