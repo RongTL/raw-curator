@@ -20,11 +20,19 @@ from PIL import Image, ImageOps
 # lightweight callers can use them without this module's heavy deps.
 # Re-exported here for existing importers (walker, jpeg_writer, ...).
 from app.ingest.extensions import (
-    HEIC_EXTS,
-    JPEG_EXTS,
-    PNG_EXTS,
-    RAW_EXTS,
-    TIFF_EXTS,
+    HEIC_EXTS as HEIC_EXTS,
+)
+from app.ingest.extensions import (
+    JPEG_EXTS as JPEG_EXTS,
+)
+from app.ingest.extensions import (
+    PNG_EXTS as PNG_EXTS,
+)
+from app.ingest.extensions import (
+    RAW_EXTS as RAW_EXTS,
+)
+from app.ingest.extensions import (
+    TIFF_EXTS as TIFF_EXTS,
 )
 
 log = logging.getLogger(__name__)

@@ -34,7 +34,7 @@ class FaceDetector:
         self.app = FaceAnalysis(name="buffalo_l", providers=providers, root=root)
         self.app.prepare(ctx_id=device_id, det_size=(det_size, det_size))
 
-    def __enter__(self) -> "FaceDetector":
+    def __enter__(self) -> FaceDetector:
         return self
 
     def __exit__(self, *exc: object) -> None:

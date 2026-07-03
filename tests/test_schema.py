@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.models import SessionMeta
 
-
 EXPECTED_TABLES = {
     "session_meta",
     "clusters",

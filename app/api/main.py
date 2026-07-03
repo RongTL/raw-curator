@@ -49,7 +49,7 @@ if _STATIC_DIR.exists():
 
 
 @app.get("/api/health")
-def health() -> dict:
+def health() -> dict[str, bool]:
     return {"ok": True}
 
 
