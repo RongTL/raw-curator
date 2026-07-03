@@ -141,6 +141,11 @@ class JobRunner:
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,
             )
+        except asyncio.CancelledError:
+            # asyncio's transport kills the half-spawned child on cancellation;
+            # the record must not stay RUNNING or the single slot wedges.
+            self._finish(self._current, JobStatus.CANCELLED, exit_code=None)
+            raise
         except OSError as exc:
             self._finish(self._current, JobStatus.FAILED, exit_code=None)
             raise RuntimeError(f"failed to spawn stage {stage!r}: {exc}") from exc
@@ -153,7 +158,9 @@ class JobRunner:
             # don't block on an orphaned reader task.
             return record
         if self._reader is not None:
-            await self._reader
+            # Shield: a cancelled waiter (e.g. an auto-run chain being torn
+            # down) must not cancel the runner's internal reader task.
+            await asyncio.shield(self._reader)
         record = self._current
         if record is None:
             raise RuntimeError("wait() called before any job was started")

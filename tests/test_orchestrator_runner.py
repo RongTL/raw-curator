@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -151,6 +152,22 @@ async def test_drain_timeout_forces_cancelled_and_next_run_is_clean(
     assert record2.status is JobStatus.DONE
     _, lines = runner.log_lines(0)
     assert lines == ["fresh"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_leaves_pump_alive(tmp_path: Path) -> None:
+    runner = JobRunner(log_dir=tmp_path, command=PY)
+    await runner.start("stage", ("import time; time.sleep(0.5); print('done')",))
+    waiter = asyncio.ensure_future(runner.wait())
+    await asyncio.sleep(0.1)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    async with asyncio.timeout(15):
+        record = await runner.wait()
+    assert record.status is JobStatus.DONE
+    _, lines = runner.log_lines(0)
+    assert lines == ["done"]
 
 
 @pytest.mark.asyncio
