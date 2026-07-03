@@ -92,6 +92,16 @@ function App() {
     const stage = status?.stages?.find((s) => s.name === name);
     if (!stage) return;
     if (stage.state === "done" && !confirm(`Re-run ${stage.title}?`)) return;
+    if (
+      (stage.state === "failed" || stage.state === "cancelled") &&
+      !confirm(
+        `${stage.title} ended ${stage.state}` +
+          `${stage.exit_code != null ? ` (exit ${stage.exit_code})` : ""}` +
+          ` — the log is shown in the panel below. Re-run it?`
+      )
+    ) {
+      return;
+    }
     setPanel("pipeline");
     act(() => api.runStage(name));
   }, [status, act]);
