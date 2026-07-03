@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -38,46 +37,46 @@ class Photo(Base):
     __tablename__ = "photos"
     hash: Mapped[str] = mapped_column(String(32), primary_key=True)
     source_path: Mapped[str] = mapped_column(Text, nullable=False)
-    thumb_path: Mapped[Optional[str]] = mapped_column(Text)
-    preview_path: Mapped[Optional[str]] = mapped_column(Text)
-    file_kind: Mapped[Optional[str]] = mapped_column(String(8))
+    thumb_path: Mapped[str | None] = mapped_column(Text)
+    preview_path: Mapped[str | None] = mapped_column(Text)
+    file_kind: Mapped[str | None] = mapped_column(String(8))
 
-    camera_make: Mapped[Optional[str]] = mapped_column(String(64))
-    camera_body: Mapped[Optional[str]] = mapped_column(String(128))
-    lens: Mapped[Optional[str]] = mapped_column(String(128))
-    captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    width: Mapped[Optional[int]] = mapped_column(Integer)
-    height: Mapped[Optional[int]] = mapped_column(Integer)
-    iso: Mapped[Optional[int]] = mapped_column(Integer)
-    shutter: Mapped[Optional[float]] = mapped_column(Float)
-    aperture: Mapped[Optional[float]] = mapped_column(Float)
-    focal_length: Mapped[Optional[float]] = mapped_column(Float)
-    orientation: Mapped[Optional[int]] = mapped_column(Integer)
+    camera_make: Mapped[str | None] = mapped_column(String(64))
+    camera_body: Mapped[str | None] = mapped_column(String(128))
+    lens: Mapped[str | None] = mapped_column(String(128))
+    captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    iso: Mapped[int | None] = mapped_column(Integer)
+    shutter: Mapped[float | None] = mapped_column(Float)
+    aperture: Mapped[float | None] = mapped_column(Float)
+    focal_length: Mapped[float | None] = mapped_column(Float)
+    orientation: Mapped[int | None] = mapped_column(Integer)
 
-    blur_var: Mapped[Optional[float]] = mapped_column(Float)
-    phash: Mapped[Optional[str]] = mapped_column(String(32))
-    dhash: Mapped[Optional[str]] = mapped_column(String(32))
-    exposure_flag: Mapped[Optional[str]] = mapped_column(String(32))
-    hist_mean: Mapped[Optional[float]] = mapped_column(Float)
+    blur_var: Mapped[float | None] = mapped_column(Float)
+    phash: Mapped[str | None] = mapped_column(String(32))
+    dhash: Mapped[str | None] = mapped_column(String(32))
+    exposure_flag: Mapped[str | None] = mapped_column(String(32))
+    hist_mean: Mapped[float | None] = mapped_column(Float)
 
-    aesthetic_score: Mapped[Optional[float]] = mapped_column(Float)
-    technical_score: Mapped[Optional[float]] = mapped_column(Float)
-    musiq_score: Mapped[Optional[float]] = mapped_column(Float)
-    maniqa_score: Mapped[Optional[float]] = mapped_column(Float)
+    aesthetic_score: Mapped[float | None] = mapped_column(Float)
+    technical_score: Mapped[float | None] = mapped_column(Float)
+    musiq_score: Mapped[float | None] = mapped_column(Float)
+    maniqa_score: Mapped[float | None] = mapped_column(Float)
 
-    cluster_id: Mapped[Optional[int]] = mapped_column(
+    cluster_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("clusters.id", ondelete="SET NULL")
     )
     is_recommended: Mapped[bool] = mapped_column(Integer, default=0)
 
-    faces: Mapped[list["Face"]] = relationship(
+    faces: Mapped[list[Face]] = relationship(
         back_populates="photo", cascade="all, delete-orphan"
     )
-    cluster: Mapped[Optional["Cluster"]] = relationship(back_populates="photos")
-    decision: Mapped[Optional["Decision"]] = relationship(
+    cluster: Mapped[Cluster | None] = relationship(back_populates="photos")
+    decision: Mapped[Decision | None] = relationship(
         back_populates="photo", uselist=False, cascade="all, delete-orphan"
     )
-    quality_report: Mapped[Optional["PhotoQualityReport"]] = relationship(
+    quality_report: Mapped[PhotoQualityReport | None] = relationship(
         back_populates="photo", uselist=False, cascade="all, delete-orphan"
     )
 
@@ -107,8 +106,8 @@ class Face(Base):
     bbox_w: Mapped[int] = mapped_column(Integer, nullable=False)
     bbox_h: Mapped[int] = mapped_column(Integer, nullable=False)
     det_score: Mapped[float] = mapped_column(Float, nullable=False)
-    embedding: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
-    group_id: Mapped[Optional[int]] = mapped_column(Integer)
+    embedding: Mapped[bytes | None] = mapped_column(LargeBinary)
+    group_id: Mapped[int | None] = mapped_column(Integer)
 
     photo: Mapped[Photo] = relationship(back_populates="faces")
 
@@ -120,7 +119,7 @@ class Cluster(Base):
     __tablename__ = "clusters"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    label: Mapped[Optional[str]] = mapped_column(String(128))
+    label: Mapped[str | None] = mapped_column(String(128))
     size: Mapped[int] = mapped_column(Integer, default=0)
 
     photos: Mapped[list[Photo]] = relationship(back_populates="cluster")
@@ -134,8 +133,8 @@ class ClusterMember(Base):
     photo_hash: Mapped[str] = mapped_column(
         String(32), ForeignKey("photos.hash", ondelete="CASCADE"), primary_key=True
     )
-    rank: Mapped[Optional[int]] = mapped_column(Integer)
-    score: Mapped[Optional[float]] = mapped_column(Float)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    score: Mapped[float | None] = mapped_column(Float)
     __table_args__ = (UniqueConstraint("cluster_id", "photo_hash"),)
 
 
@@ -151,7 +150,7 @@ class Decision(Base):
     enhance_requested: Mapped[bool] = mapped_column(Integer, default=0)
     action: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
     applied: Mapped[bool] = mapped_column(Integer, default=0)
-    note: Mapped[Optional[str]] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
 
     photo: Mapped[Photo] = relationship(back_populates="decision")
 
@@ -188,7 +187,7 @@ class PhotoQualityReport(Base):
     bg_ratio: Mapped[float] = mapped_column(Float, nullable=False)
     avg_saturation: Mapped[float] = mapped_column(Float, nullable=False)
     oversat_ratio: Mapped[float] = mapped_column(Float, nullable=False)
-    skin_hue_var: Mapped[Optional[float]] = mapped_column(Float)
+    skin_hue_var: Mapped[float | None] = mapped_column(Float)
 
     # §4 Sharpness
     lap_var: Mapped[float] = mapped_column(Float, nullable=False)

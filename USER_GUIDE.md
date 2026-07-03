@@ -16,11 +16,13 @@ The system has **no long-term memory**. One "session" = one batch:
 
 ```
 [1] drop RAWs into photos/incoming/
-[2] run the pipeline (ingest → filter → score → cluster)
-[3] open the UI, review, stage decisions (yes/no), submit
-[4] run enhance — Auto Enhancement Engine runs on every decided photo
-[5] copy outputs out of photos/library/ + photos/exported/
-[6] make reset → DB + cache + working dirs are wiped
+[2] make serve → open the Control Center at http://<host>:8080
+[3] Auto-run — leg 1 (ingest → filter → score → cluster), then it
+    stops for human review
+[4] review, stage decisions (yes/no), click Submit & continue —
+    leg 2 (submit → enhance → export-jpeg) runs unattended
+[5] copy outputs out of photos/library/ + exported/ + jpeg/
+[6] New batch (type RESET) → DB + cache + working dirs are wiped
 [7] next batch is a clean slate; models/ is kept
 ```
 
@@ -71,6 +73,10 @@ cd ~/projects/raw-curator
 make reset          # confirms before wiping; wipes DB + cache + working dirs
 ```
 
+If the Control Center is already running, the header's **New batch**
+button does the same wipe from the browser (you must type `RESET` to
+confirm).
+
 After this:
 - `cache/session.db` is freshly migrated (empty schema, including the
   `quality_reports` table the Auto Enhancement Engine writes into).
@@ -112,9 +118,40 @@ pixels gives worse results than just leaving the file as-is). When
 that happens the original is left in place even if the decision was
 `no` — the source-RAW deletion only fires after a TIFF is written.
 
-### Step 2 — Run the analysis pipeline
+### Step 2 — Start the Control Center and Auto-run
 
-The fastest way is the autopilot:
+```bash
+make serve          # foreground; Ctrl-C to stop
+```
+
+Open `http://<host>:8080` in any browser on your network. The header
+shows a horizontal stage timeline:
+
+```
+Ingest → Filter → Score → Cluster → [Review] → Submit → Enhance → Export JPEG
+```
+
+- Click **Auto-run** to run leg 1 (ingest → filter → score → cluster)
+  in one shot. It stops automatically at **Review** and waits for you
+  — nothing past cluster runs without a human decision.
+- Or click any stage in the timeline to run just that stage — useful
+  for debugging or re-running one phase. Only one stage runs at a
+  time.
+- **Stop** in the header cancels the running stage (and the rest of
+  an in-flight auto-run).
+- Each stage runs as an isolated subprocess: its output streams live
+  into the stage panel and is written to `cache/logs/<stage>-NNN.log`.
+  If a stage crashes (e.g. GPU OOM), it turns red in the timeline
+  with the exit code and log tail — the server survives, so fix the
+  cause (see "When things go wrong") and re-run that stage.
+- The docked resource bar at the bottom shows live CPU / RAM / GPU /
+  VRAM / disk with sparklines; expand it for 60-second charts. It
+  warns when free space on the photos volume drops below
+  `RAWCURATOR_MONITOR_DISK_WARN_FREE_GB` (default 50 GB).
+
+#### Advanced: headless CLI
+
+The same leg is available without the UI:
 
 ```bash
 make run            # ingest → filter → score → cluster
@@ -161,17 +198,18 @@ between stages.
   is marked `is_recommended = True`, ranked by
   `0.6·technical_score + 0.4·aesthetic_score`.
 
-### Step 3 — Review in the UI
+### Step 3 — Review and decide
 
-```bash
-make serve          # foreground; Ctrl-C to stop
-```
+When leg 1 finishes, the timeline stops at **Review** and the review
+panel opens: a toolbar with **All** / **Clusters** view tabs, sort,
+a bulk **"don't keep any RAW"** button and the green **Submit &
+continue** button; below it a grid of thumbnails; and a full-screen
+detail modal that opens when you click a tile or press Enter.
 
-Open `http://<host>:8080` in any browser on your network.
-
-The UI is a single page: a grid of thumbnails on top, a header with
-sort/submit on top, and a full-screen detail modal that opens when
-you click or press Enter.
+The bulk **"don't keep any RAW"** button stages every photo in the
+batch as `no` in one shot (a confirm dialog spells out that each
+source RAW is deleted after enhancement). You can still flip
+individual photos back to `yes` before submitting.
 
 #### Grid view
 
@@ -205,16 +243,20 @@ Keyboard shortcuts inside the modal:
 | `esc`     | Close detail view                       |
 
 Sort: `score (technical)` or `captured`. Filter by score is implicit
-through sort order. Submission happens via the green "submit batch" button
-in the header (no keyboard shortcut).
+through sort order. Submission happens via the green **Submit &
+continue** button in the review toolbar (no keyboard shortcut).
 
 #### Staging vs submitting
 
 Every decision (stars / yes-no / favorite) is **staged** in the
 `decisions` table. **Nothing on disk moves** until you click the
-green "submit batch (N)" button in the header.
+green **Submit & continue (N)** button in the review toolbar.
 
-The header always shows how many photos still have a pending stage.
+The button always shows how many photos have a pending staged
+decision. Clicking it opens a confirmation dialog — it reminds you
+that photos marked `no` get their source RAW deleted after
+enhancement — and then starts auto-run leg 2: **submit → enhance →
+export-jpeg**, unattended.
 
 When you submit, the decision engine maps `selected` → action using
 the binary rule table in [`app/decision/rules.py`](./app/decision/rules.py):
@@ -236,17 +278,24 @@ and run:
 make submit
 ```
 
-### Step 4 — Enhance every decided photo
+### Step 4 — Leg 2: submit → enhance → export-jpeg
 
-`make enhance` runs the **Auto Enhancement Engine** on every photo
-whose `Decision.action` is `keep_and_enhance` (yes) or `enhance_only`
-(no). RAW-only — non-RAW sources are skipped with a warning.
+After **Submit & continue**, leg 2 runs unattended: staged decisions
+are applied (files move on disk), then the **Auto Enhancement Engine**
+runs on every photo whose `Decision.action` is `keep_and_enhance`
+(yes) or `enhance_only` (no), then share-ready JPEGs are exported.
+Watch progress in the timeline; each stage streams its log into the
+UI. **Stop** cancels the running stage and the rest of the leg.
+
+Enhancement is RAW-only — non-RAW sources are skipped with a warning.
+
+The equivalent headless CLI, if you prefer to run leg 2 by hand:
 
 ```bash
-make enhance
+make submit enhance export-jpeg
 ```
 
-For each photo:
+For each photo, enhance does the following:
 
 1. **darktable-cli** develops the RAW (using a matching `.xmp` sidecar
    from `xmp/` if present) to a 16-bit linear TIFF, loaded as float32
@@ -295,16 +344,17 @@ override the CodeFormer weight before running:
 RAWCURATOR_ENHANCE_CODEFORMER_W=0.85 make enhance
 ```
 
-### Step 4b — Export share-ready JPEGs (optional)
+### Step 4b — Export share-ready JPEGs
 
 RAWs (~25–50 MB each) and 16-bit TIFFs (~150 MB each) are great for
 archival and re-editing, but they are unwieldy for everyday viewing,
-phones, social media, or email. The `export-jpeg` step produces an
+phones, social media, or email. The `export-jpeg` step — run
+automatically as the last stage of leg 2, or by hand — produces an
 8-bit JPEG sibling for every kept RAW (`photos/library/*`) and every
 enhanced TIFF (`photos/exported/*.tif`).
 
 ```bash
-make export-jpeg
+make export-jpeg    # idempotent — skips existing outputs, cheap to re-run
 ```
 
 Defaults: quality `92`, native resolution, progressive, 4:2:0 chroma
@@ -344,9 +394,9 @@ How each source is processed:
   `uint16 >> 8` to 8-bit → Pillow JPEG encode. The enhanced TIFFs are
   already sRGB display-referred so no colour transform is needed.
 
-This step is intentionally last and intentionally optional. It does
-**not** touch the RAW/TIFF sources, and it is the only stage whose
-output is meant to leave the box as-is.
+This step is intentionally last. It does **not** touch the RAW/TIFF
+sources, and it is the only stage whose output is meant to leave the
+box as-is.
 
 ### Step 5 — Collect your outputs
 
@@ -375,11 +425,15 @@ rsync -a photos/jpeg/     "$DEST/jpeg/"
 
 ### Step 6 — Reset for the next session
 
+From the UI: click **New batch** in the header and type `RESET` in
+the confirmation dialog. From the CLI:
+
 ```bash
-make reset          # asks "have you saved anything you need to keep?"
+make reset
 ```
 
-`make reset` is non-interactive — it deletes immediately:
+Both do the same wipe. `make reset` is non-interactive — it deletes
+immediately:
 - Deletes `cache/session.db` (and `-wal`/`-shm`).
 - Empties `cache/previews/` and `cache/thumbs/`.
 - Empties `photos/library/`, `photos/archive/`, `photos/quarantine/`,
@@ -485,6 +539,8 @@ sqlite> SELECT hash, technical_score, aesthetic_score FROM photos ORDER BY techn
 | `nvidia-smi` works on host but not in container | Re-run `host-bootstrap.sh`; verify `/etc/cdi/nvidia.yaml` exists      |
 | `make score` reports CUDA OOM              | Lower `RAWCURATOR_CLIP_BATCH` (default 8) → 4                          |
 | `make enhance` reports CUDA OOM mid-photo  | Lower `RAWCURATOR_ENHANCE_AI_SCALE` (default 1.0) → 0.85 → 0.7 → 0.5  |
+| A stage turns red in the Control Center timeline | Click the stage for the exit code + log tail; full log at `cache/logs/<stage>-NNN.log`. Fix the cause, then re-run the stage — the server survives stage crashes |
+| Resource bar shows a disk warning          | Free space on the photos volume is below `RAWCURATOR_MONITOR_DISK_WARN_FREE_GB` (default 50 GB) — clear space or set `RAWCURATOR_ENHANCE_TARGET_RES=native` for ~4x smaller TIFFs |
 | UI thumbnails 404                          | Cache dir not writable — `chmod -R u+rw cache/` on the host           |
 | Submit fails partway                       | DB is in WAL mode and transactional; rerun `make submit`; check `decisions.applied` |
 | Enhance output looks oversharpened         | Lower `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` toward `0.3` (softer); for faces, *raise* `RAWCURATOR_ENHANCE_CODEFORMER_W` toward `0.95` (higher w = more faithful to original skin) |

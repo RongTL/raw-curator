@@ -23,6 +23,7 @@ Hardware fit (Ryzen 3 3100 + 24 GB RAM + RTX 2060 6 GB):
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from app.enhancement.engine.runner import run_plan
 from app.enhancement.pack_tiff import write_tiff16
 from app.models import Decision, Face, Photo, PhotoQualityReport
 from app.paths import relative_subpath
+from app.workers.gpu_worker import warmup
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -190,10 +192,8 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
     # write_tiff16 expects uint8 currently; the existing wrapper handles conversion.
     write_tiff16((result_f01 * 65535.0 + 0.5).clip(0, 65535).astype(np.uint16), out)
 
-    try:
+    with contextlib.suppress(OSError):
         full_tiff.unlink()
-    except OSError:
-        pass
 
     # Sanity-check the output before deleting the source RAW on the enhance_only
     # path. A May 2026 incident destroyed 10 originals because a buggy classical
@@ -226,6 +226,7 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
 
 
 def run_enhancement() -> None:
+    warmup()
     items = _candidates()
     if not items:
         console.print("[yellow]No photos to enhance.[/yellow]")

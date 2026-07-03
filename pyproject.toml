@@ -40,11 +40,15 @@ open-clip-torch = "^2.26"
 aesthetic-predictor-v2-5 = ">=2024.12"
 pyiqa = "^0.1.11"
 insightface = "^0.7.3"
-onnxruntime-gpu = "^1.18"
+# <1.23: onnxruntime-gpu 1.23+ PyPI wheels target CUDA 13 (libcudart.so.13);
+# the base image and torch cu124 wheels are CUDA 12, so stay on the 1.22.x line.
+onnxruntime-gpu = ">=1.18,<1.23"
 realesrgan = "^0.3"
 basicsr = "^1.4"
 facexlib = "^0.3"
 codeformer-pip = "^0.0.4"
+psutil = "^7.0"
+nvidia-ml-py = "^12.560"
 
 [[tool.poetry.source]]
 name = "pytorch-cu124"

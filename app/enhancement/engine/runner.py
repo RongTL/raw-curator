@@ -35,8 +35,8 @@ from app.enhancement.downsample import scale as lanczos_scale
 from app.enhancement.engine.plan import EnhancementPlan
 from app.enhancement.face_restore import codeformer_restore
 from app.enhancement.tone_balance import recover_backlit
-from app.enhancement.upscale import realesrgan_x2
 from app.enhancement.upsample_final import upsample_final
+from app.enhancement.upscale import realesrgan_x2
 
 log = logging.getLogger(__name__)
 

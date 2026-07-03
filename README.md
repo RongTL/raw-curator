@@ -1,9 +1,10 @@
 # raw-curator
 
 An ephemeral, single-batch AI photo curation pipeline. Drop a batch of
-RAW, JPEG, TIFF, HEIC, or PNG files into `photos/incoming/`, run the
-pipeline, review in a local web UI, submit decisions, run the Auto
-Enhancement Engine on every decided photo, then wipe the session and
+RAW, JPEG, TIFF, HEIC, or PNG files into `photos/incoming/`, then drive
+the whole pipeline from the **Control Center** web UI: auto-run the
+analysis stages, review, submit decisions, run the Auto Enhancement
+Engine on every decided photo, export JPEGs, then wipe the session and
 start fresh on the next batch.
 
 Everything runs inside a Podman container. The host only needs the NVIDIA
@@ -31,9 +32,11 @@ For each batch:
    6 GB VRAM.
 4. **Cluster** — EXIF burst → pHash dedupe → CLIP cosine via HDBSCAN; one
    recommendation per cluster.
-5. **Review** — FastAPI + a single-page React UI (CDN, no Node build).
-   Stage decisions per photo with keyboard shortcuts; nothing on disk
-   moves until you click **Submit**.
+5. **Review** — the Control Center (FastAPI + a single-page React UI,
+   CDN, no Node build) shows a stage timeline and a review panel
+   (All/Clusters views). Stage decisions per photo with keyboard
+   shortcuts; nothing on disk moves until you click **Submit &
+   continue**.
 6. **Decide** — binary table: `selected` → action. Score tier is no
    longer part of routing.
 
@@ -80,16 +83,49 @@ make image
 # Fetch model weights into models/ (~17 GB; idempotent — skips on re-run)
 make download-models
 
-# Initialise empty cache + DB
+# First time only: initialise the DB schema
+# (the UI's "New batch" button does the same wipe+init later on)
 make reset
 
-# Drop RAWs into photos/incoming/, then run the full pipeline (no UI)
-make run
+# Drop photos into photos/incoming/, then start the Control Center
+make serve
+```
 
-# Start the review UI on http://<host>:8080
+Open `http://<host>:8080` and drive the whole batch from the browser:
+
+1. Click **Auto-run** — leg 1 runs ingest → filter → score → cluster,
+   then stops for human review.
+2. Review in the panel (yes/no per photo, bulk "don't keep any RAW",
+   keyboard shortcuts), then click **Submit & continue** — leg 2 runs
+   submit → enhance → export-jpeg unattended.
+3. Done: share-ready JPEGs land in `photos/jpeg/`, enhanced 16-bit
+   TIFFs in `photos/exported/`, kept RAWs in `photos/library/`.
+4. Copy your outputs somewhere safe, then click **New batch** (type
+   `RESET` to confirm) to wipe the session — `photos/incoming/` and
+   `models/` are left alone.
+
+A docked resource bar shows live CPU/RAM/GPU/VRAM/disk with sparklines
+and warns when free space on the photos volume drops below
+`RAWCURATOR_MONITOR_DISK_WARN_FREE_GB` (default 50 GB). Stage logs
+stream into the UI and are also written under `cache/logs/`.
+
+`make help` lists every target.
+
+### Advanced / CLI path
+
+Every stage is still a standalone make target for headless use:
+
+```bash
+# Initialise empty cache + DB (the UI's "New batch" does the same)
+make reset
+
+# Drop RAWs into photos/incoming/, then run the analysis pipeline (no UI)
+make run            # = make ingest filter score cluster
+
+# Start the UI just for review + submit
 make serve
 
-# After reviewing in the UI and clicking Submit, the files move on disk.
+# After reviewing in the UI and submitting, the files move on disk.
 # Run the Auto Enhancement Engine on every decided photo (yes and no):
 make enhance
 
@@ -99,8 +135,6 @@ make export-jpeg
 # At the end of the session, wipe state:
 make reset
 ```
-
-`make help` lists every target.
 
 ---
 
@@ -116,7 +150,7 @@ make reset
 | `score`           | GPU scoring: CLIP, IQA, faces (stage-by-stage)                  |
 | `cluster`         | EXIF burst + pHash dedupe + CLIP HDBSCAN + recommendation       |
 | `run`             | `ingest → filter → score → cluster` in one shot (no UI)         |
-| `serve`           | FastAPI + UI on `http://0.0.0.0:8080`                           |
+| `serve`           | Control Center UI on `http://0.0.0.0:8080` — runs every stage, streams logs, live resource monitor |
 | `submit`          | Apply staged decisions (file moves) outside the UI              |
 | `enhance`         | Auto Enhancement Engine: RAW → classical + AI → 16-bit TIFF for every decided photo |
 | `export-jpeg`     | RAWs (`library/`) and TIFFs (`exported/`) → share-ready JPEGs in `photos/jpeg/` |

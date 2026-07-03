@@ -13,6 +13,7 @@ Side effects on import:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import types
@@ -73,10 +74,8 @@ def _link_codeformer_aux_weights() -> None:
         dst = target_dir / name
         if dst.exists() or dst.is_symlink():
             continue
-        try:
+        with contextlib.suppress(OSError):
             dst.symlink_to(src)
-        except OSError:
-            pass
 
 
 _install_torchvision_compat_shim()

@@ -22,7 +22,7 @@ class AestheticPredictor:
         self.model = model
         self.processor = processor
 
-    def __enter__(self) -> "AestheticPredictor":
+    def __enter__(self) -> AestheticPredictor:
         return self
 
     def __exit__(self, *exc: object) -> None:

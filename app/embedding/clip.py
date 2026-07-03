@@ -29,7 +29,7 @@ class ClipEmbedder:
         self.model = model
         self.preprocess = preprocess
 
-    def __enter__(self) -> "ClipEmbedder":
+    def __enter__(self) -> ClipEmbedder:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -50,8 +50,7 @@ class ClipEmbedder:
         feats = self.model.encode_image(imgs)
         feats = feats / feats.norm(dim=-1, keepdim=True).clamp_min(1e-12)
         feats_np = feats.detach().to(torch.float16).cpu().numpy()
-        for path, vec in zip(batch_paths, feats_np, strict=True):
-            yield path, vec
+        yield from zip(batch_paths, feats_np, strict=True)
 
 
 def vec_to_bytes(vec: np.ndarray) -> bytes:

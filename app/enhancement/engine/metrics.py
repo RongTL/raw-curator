@@ -16,7 +16,7 @@ Metric coordinate systems:
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 

@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 *.egg-info/
 .venv/
+.venv-dev/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
@@ -28,3 +29,5 @@ tests/data/
 
 .env
 .DS_Store
+
+.superpowers/

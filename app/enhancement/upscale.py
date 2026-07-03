@@ -41,8 +41,8 @@ def realesrgan_x2(
         return _lanczos_x2(rgb)
 
     try:
-        from realesrgan import RealESRGANer  # type: ignore
         from basicsr.archs.rrdbnet_arch import RRDBNet  # type: ignore
+        from realesrgan import RealESRGANer  # type: ignore
     except ImportError as exc:
         log.warning("realesrgan imports failed: %s — falling back to Lanczos x2", exc)
         return _lanczos_x2(rgb)

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     jpeg_progressive: bool = True
     jpeg_subdir: str = "jpeg"
 
+    # UI warns when the photos volume has less free space than this (GB)
+    monitor_disk_warn_free_gb: float = 50.0
+
     @property
     def db_path(self) -> Path:
         return self.cache / "session.db"
