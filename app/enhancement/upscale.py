@@ -1,4 +1,8 @@
-"""Real-ESRGAN x2 upscaler with optional Lanczos fidelity blend.
+"""Real-ESRGAN x2 upscaler with feathered tiling and optional Lanczos fidelity blend.
+
+Tiling is ours, not the realesrgan library's: ``tiled_apply`` runs the model
+on overlapping windows and cross-fades the overlaps, so no hard tile
+boundary survives in smooth gradients such as skies.
 
 Real-ESRGAN x2plus is a GAN — it produces sharp results but can
 over-sharpen natural textures (skin, foliage, sky), giving a fake-detail
@@ -16,6 +20,7 @@ import numpy as np
 
 from app.arrays import Array
 from app.enhancement.downsample import lanczos_resize
+from app.enhancement.tiling import tiled_apply
 from app.enhancement.weights import realesrgan_weights
 
 log = logging.getLogger(__name__)
@@ -29,10 +34,10 @@ def _lanczos_x2(rgb: Array) -> Array:
 class RealEsrganModel:
     """Real-ESRGAN x2 loaded once for a batch. ``apply`` blends by ``fidelity`` like realesrgan_x2 did."""
 
-    def __init__(self, tile_size: int = 768, tile_pad: int = 16) -> None:
+    def __init__(self, tile_size: int = 768, overlap: int = 32) -> None:
         self.available = False
         self._tile_size = tile_size
-        self._tile_pad = tile_pad
+        self._overlap = overlap
         self._upsampler: Any = None
         self._torch: Any = None
 
@@ -56,8 +61,8 @@ class RealEsrganModel:
             scale=2,
             model_path=str(weights),
             model=model,
-            tile=self._tile_size,
-            tile_pad=self._tile_pad,
+            tile=0,
+            tile_pad=0,
             pre_pad=0,
             half=True,
         )
@@ -84,7 +89,13 @@ class RealEsrganModel:
         if not self.available or fidelity <= 0.0:
             return _lanczos_x2(rgb)
 
-        ai_out, _ = self._upsampler.enhance(rgb, outscale=2)
+        ai_out = tiled_apply(
+            rgb,
+            lambda t: self._upsampler.enhance(t, outscale=2)[0],
+            tile=self._tile_size,
+            overlap=self._overlap,
+            scale=2,
+        )
 
         if fidelity >= 1.0:
             return ai_out
@@ -106,8 +117,8 @@ class RealEsrganModel:
 def realesrgan_x2(
     rgb: Array,
     tile_size: int = 768,
-    tile_pad: int = 16,
+    overlap: int = 32,
     fidelity: float = 1.0,
 ) -> Array:
-    with RealEsrganModel(tile_size=tile_size, tile_pad=tile_pad) as m:
+    with RealEsrganModel(tile_size=tile_size, overlap=overlap) as m:
         return m.apply(rgb, fidelity=fidelity)
