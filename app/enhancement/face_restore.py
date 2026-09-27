@@ -70,9 +70,9 @@ def guard_faces(
 # `resize=640` argument only ever UP-scales tiny inputs (scale = max(1,
 # scale) in the upstream code), so we cap the long edge ourselves before
 # handing the image over. CodeFormer crops every detected face to 512 px
-# internally and the result is upsampled back to native by
-# upsample_final(), so capping only costs a Lanczos round-trip on the
-# non-face areas, which the final resample to native re-flattens anyway.
+# internally and `apply` resizes the result back to the input size, so
+# capping only costs a Lanczos round-trip on the non-face areas, which
+# the final resample re-flattens anyway.
 # The cap is settings.codeformer_max_long_edge.
 
 
