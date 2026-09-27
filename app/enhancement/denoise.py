@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -64,51 +64,76 @@ def _tiled_forward(
     return out
 
 
+class ScunetModel:
+    """SCUNet loaded once for a batch. ``apply`` blends by ``strength`` like scunet_denoise did."""
+
+    def __init__(self) -> None:
+        self.available = False
+        self._model: Any = None
+        self._torch: Any = None
+        self._device: Any = None
+        self._dtype: Any = None
+
+    def __enter__(self) -> ScunetModel:
+        weights = scunet_weights()
+        if not weights.exists():
+            log.warning("scunet weights missing at %s — denoise disabled", weights)
+            return self
+        try:
+            import torch
+
+            from app.enhancement._scunet_arch import SCUNet
+        except ImportError as exc:
+            log.warning("scunet imports failed: %s — denoise disabled", exc)
+            return self
+        self._torch = torch
+        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._dtype = torch.float16 if self._device.type == "cuda" else torch.float32
+        model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(  # type: ignore[no-untyped-call]
+            self._device, dtype=self._dtype
+        )
+        ckpt = torch.load(str(weights), map_location="cpu", weights_only=False)
+        model.load_state_dict(ckpt.get("params") or ckpt.get("params_ema") or ckpt)
+        model.eval()
+        self._model = model
+        self.available = True
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._model = None
+        if self._torch is not None and self._torch.cuda.is_available():
+            self._torch.cuda.empty_cache()
+        self.available = False
+
+    def apply(self, rgb: Array, *, strength: float = 1.0, **_: object) -> Array:
+        """Run SCUNet, then blend the denoised result with the input.
+
+        `strength` in [0, 1]: 1.0 returns pure SCUNet, 0.0 returns the input
+        unchanged. Values <1 retain a fraction of the original micro-texture
+        so the output keeps natural sensor grain instead of looking plastic.
+        """
+        if strength <= 0.0 or not self.available:
+            return rgb
+        strength = float(min(1.0, strength))
+        torch = self._torch
+        x = (
+            torch.from_numpy(rgb.astype(np.float32) / 255.0)
+            .permute(2, 0, 1)
+            .unsqueeze(0)
+            .to(self._device, dtype=self._dtype)
+        )
+        y = _tiled_forward(self._model, x)
+        denoised = y.squeeze(0).permute(1, 2, 0).float().cpu().numpy() * 255.0
+        del x, y
+        if strength >= 1.0:
+            return denoised.astype(np.uint8)
+        blended = denoised * strength + rgb.astype(np.float32) * (1.0 - strength)
+        return np.clip(blended, 0.0, 255.0).astype(np.uint8)
+
+
 def scunet_denoise(rgb: Array, strength: float = 1.0) -> Array:
-    """Run SCUNet, then blend the denoised result with the input.
-
-    `strength` in [0, 1]: 1.0 returns pure SCUNet, 0.0 returns the input
-    unchanged. Values <1 retain a fraction of the original micro-texture
-    so the output keeps natural sensor grain instead of looking plastic.
-    """
-    if strength <= 0.0:
-        return rgb
-    strength = float(min(1.0, strength))
-
-    weights = scunet_weights()
-    if not weights.exists():
-        log.warning("scunet weights missing at %s — skipping denoise", weights)
-        return rgb
-    try:
-        import torch
-
-        from app.enhancement._scunet_arch import SCUNet
-    except ImportError as exc:
-        log.warning("scunet imports failed: %s — skipping denoise", exc)
-        return rgb
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dtype = torch.float16 if device.type == "cuda" else torch.float32
-    model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(  # type: ignore[no-untyped-call]
-        device, dtype=dtype
-    )
-    ckpt = torch.load(str(weights), map_location="cpu", weights_only=False)
-    model.load_state_dict(ckpt.get("params") or ckpt.get("params_ema") or ckpt)
-    model.eval()
-
-    x = (
-        torch.from_numpy(rgb.astype(np.float32) / 255.0)
-        .permute(2, 0, 1)
-        .unsqueeze(0)
-        .to(device, dtype=dtype)
-    )
-    y = _tiled_forward(model, x)
-    denoised = y.squeeze(0).permute(1, 2, 0).float().cpu().numpy() * 255.0
-    del model, x, y
-    if device.type == "cuda":
-        torch.cuda.empty_cache()
-
-    if strength >= 1.0:
-        return denoised.astype(np.uint8)
-    blended = denoised * strength + rgb.astype(np.float32) * (1.0 - strength)
-    return np.clip(blended, 0.0, 255.0).astype(np.uint8)
+    with ScunetModel() as m:
+        return m.apply(rgb, strength=strength)
