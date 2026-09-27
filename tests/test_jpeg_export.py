@@ -115,15 +115,16 @@ def test_list_candidates_partitions_by_source(
     raw.write_bytes(b"\x00")
     tif = tmp_path / "exported" / "B.tif"
     tif.write_bytes(b"\x00")
-    junk = tmp_path / "exported" / "B.cr3"  # ignored: RAW in exported/
+    junk = tmp_path / "exported" / "B.cr3"  # ignored: only enhanced TIFFs live in exported/
     junk.write_bytes(b"\x00")
-    (tmp_path / "library" / "ignore.jpg").write_bytes(b"\x00")
+    jpg = tmp_path / "library" / "keep.jpg"  # library/ may hold any supported kind
+    jpg.write_bytes(b"\x00")
 
     monkeypatch.setattr(jpeg_job.settings, "photos", tmp_path)
 
-    assert jpeg_job._list_candidates("library") == [raw]
+    assert jpeg_job._list_candidates("library") == [raw, jpg]
     assert jpeg_job._list_candidates("exported") == [tif]
-    assert jpeg_job._list_candidates("all") == [raw, tif]
+    assert jpeg_job._list_candidates("all") == [raw, jpg, tif]
 
 
 def test_dest_for_preserves_subfolders(
