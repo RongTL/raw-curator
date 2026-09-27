@@ -156,6 +156,7 @@ def icc_description(icc: bytes) -> str | None:
     if len(icc) < 132:
         return None
     count = int.from_bytes(icc[128:132], "big")
+    count = min(count, max(0, (len(icc) - 132) // 12))  # a malformed count can't exceed the blob
     for i in range(count):
         off = 132 + 12 * i
         if icc[off : off + 4] != b"desc":
