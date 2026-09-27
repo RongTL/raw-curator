@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from app.api.routes._urls import cache_url
+from app.api.serializers import photo_summary
 from app.db import session_scope
 from app.models import Decision, Photo
 
@@ -13,42 +13,14 @@ router = APIRouter()
 
 
 @router.get("/")
-def list_queue(sort: str = "score", limit: int | None = None) -> list[dict]:
+def list_queue(sort: str = "score", limit: int | None = None) -> list[dict[str, Any]]:
     """Return the full batch by default. `limit` is an optional safety cap;
     the UI paginates client-side (infinite scroll), so no server cap is needed."""
-    items: list[dict] = []
     with session_scope() as sess:
         stmt = select(Photo, Decision).outerjoin(Decision, Photo.hash == Decision.photo_hash)
         if limit is not None:
             stmt = stmt.limit(limit)
-        rows = sess.execute(stmt).all()
-        for p, d in rows:
-            items.append(
-                {
-                    "hash": p.hash,
-                    "filename": Path(p.source_path).name if p.source_path else None,
-                    "file_kind": p.file_kind,
-                    "thumb_url": cache_url(p.thumb_path),
-                    "captured_at": p.captured_at.isoformat() if p.captured_at else None,
-                    "camera_body": p.camera_body,
-                    "blur_var": p.blur_var,
-                    "aesthetic_score": p.aesthetic_score,
-                    "technical_score": p.technical_score,
-                    "cluster_id": p.cluster_id,
-                    "is_recommended": bool(p.is_recommended),
-                    "decision": (
-                        {
-                            "selected": d.selected,
-                            "stars": d.stars,
-                            "favorite": bool(d.favorite),
-                            "applied": bool(d.applied),
-                            "action": d.action,
-                        }
-                        if d
-                        else None
-                    ),
-                }
-            )
+        items = [photo_summary(p, d) for p, d in sess.execute(stmt).all()]
     if sort == "score":
         items.sort(key=lambda r: (r["technical_score"] or 0.0), reverse=True)
     elif sort == "captured":
