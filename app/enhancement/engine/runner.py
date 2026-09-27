@@ -33,6 +33,7 @@ from app.enhancement.classical import (
     tone_map,
     white_balance,
 )
+from app.enhancement.colorspace import linear_rec2020_to_srgb_u8, srgb_u8_to_linear_rec2020
 from app.enhancement.denoise import scunet_denoise
 from app.enhancement.downsample import scale as lanczos_scale
 from app.enhancement.engine.plan import EnhancementPlan
@@ -54,12 +55,13 @@ def _free_gpu() -> None:
         pass
 
 
-def _to_u8(rgb_f01: Array) -> Array:
-    return (np.clip(rgb_f01, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+def _to_u8(rgb_lin: Array) -> Array:
+    """AI boundary: linear Rec.2020 float -> display-referred sRGB uint8."""
+    return linear_rec2020_to_srgb_u8(rgb_lin)
 
 
 def _from_u8(rgb_u8: Array) -> Array:
-    return (rgb_u8.astype(np.float32) * (1.0 / 255.0)).astype(np.float32)
+    return srgb_u8_to_linear_rec2020(rgb_u8)
 
 
 _PRE_AI = {

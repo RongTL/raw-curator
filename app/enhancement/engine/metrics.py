@@ -1,7 +1,7 @@
 """Quality measurement per spec §1-§5.
 
-Operates on full-resolution float32 linear RGB in [0, 1] for highest
-accuracy. A 24 MP image at float32 RGB is ~290 MB — comfortable on a
+Input contract: linear Rec.2020 float32 in [0, 1] (what develop_full produces).
+A 24 MP image at float32 RGB is ~290 MB — comfortable on a
 24 GB host. cv2 is used for the heavy-lifting kernels (Laplacian, Canny,
 color conversion) — they are SIMD-vectorised and release the GIL, so they
 pipeline well alongside Python work on a 4C/8T Ryzen 3 3100.
@@ -35,8 +35,12 @@ _NOISE_FLAT_GRADIENT_MAX = 4.0  # 8-bit luma gradient ceiling for a "flat" patch
 _FFT_CENTER_FRAC = 0.25  # the band we treat as DC/low-frequency
 
 
-def to_float01(img: Array) -> Array:
-    """Normalize uint8 / uint16 / float to float32 [0, 1]."""
+def as_linear_float01(img: Array) -> Array:
+    """Normalize uint8 / uint16 / float to float32 [0, 1].
+
+    Values are taken as linear light; the sRGB encoding for the spec's 8-bit
+    thresholds happens in _luma_u8.
+    """
     if img.dtype == np.float32:
         return np.clip(img, 0.0, 1.0)
     if img.dtype == np.float64:
@@ -292,7 +296,7 @@ def measure_all(
     rgb: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
 ) -> dict[str, float | None]:
-    rgb_f01 = to_float01(rgb)
+    rgb_f01 = as_linear_float01(rgb)
     if rgb_f01.ndim != 3 or rgb_f01.shape[-1] != 3:
         raise ValueError(f"expected HxWx3 image, got shape {rgb_f01.shape}")
     out: dict[str, float | None] = {}

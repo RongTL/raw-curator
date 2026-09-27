@@ -29,7 +29,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+import tifffile
 from rich.console import Console
 from rich.progress import Progress
 from sqlalchemy import select
@@ -42,6 +42,7 @@ from app.decision.rules import ENHANCE_ACTIONS
 from app.enhancement.develop_full import darktable_cli
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
+from app.enhancement.engine.metrics import as_linear_float01
 from app.enhancement.engine.plan import QualityReport
 from app.enhancement.engine.runner import run_plan
 from app.enhancement.pack_tiff import write_tiff16
@@ -113,19 +114,13 @@ def persist_report(sess: Session, photo_hash: str, report: QualityReport) -> Non
 
 
 def _load_linear_float(tiff_path: Path) -> Array:
-    """Load a 16-bit linear TIFF (from darktable_cli) as float32 RGB in [0,1]."""
-    arr = np.asarray(Image.open(tiff_path))
+    """Load darktable's 16-bit linear Rec.2020 TIFF as float32 in [0, 1]."""
+    arr = tifffile.imread(str(tiff_path))
+    if arr.ndim == 3 and arr.shape[2] == 4:
+        arr = arr[..., :3]
     if arr.ndim != 3 or arr.shape[2] != 3:
-        # Drop alpha if present.
-        if arr.ndim == 3 and arr.shape[2] == 4:
-            arr = arr[..., :3]
-        else:
-            raise ValueError(f"expected HxWx3, got {arr.shape} from {tiff_path}")
-    if arr.dtype == np.uint16:
-        return arr.astype(np.float32) * (1.0 / 65535.0)
-    if arr.dtype == np.uint8:
-        return arr.astype(np.float32) * (1.0 / 255.0)
-    return np.clip(arr.astype(np.float32), 0.0, 1.0)
+        raise ValueError(f"expected HxWx3, got {arr.shape} from {tiff_path}")
+    return as_linear_float01(arr)
 
 
 def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | None:

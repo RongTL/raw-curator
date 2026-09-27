@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -56,6 +57,18 @@ def test_persist_report_upserts_one_row_per_photo(tmp_db: Session) -> None:
     assert rows[0].score_q == 91.5
     assert rows[0].skin_hue_var == 0.02
     assert rows[0].mean_luma == 128.0
+
+
+def test_load_linear_float_reads_16bit_rgb_tiff(tmp_path: Path) -> None:
+    import tifffile
+
+    from app.enhancement.enhance_job import _load_linear_float
+
+    tifffile.imwrite(
+        tmp_path / "t.tif", np.full((3, 3, 3), 32768, dtype=np.uint16), photometric="rgb"
+    )
+    out = _load_linear_float(tmp_path / "t.tif")
+    assert out.dtype == np.float32 and abs(float(out[0, 0, 0]) - 0.5) < 1e-3
 
 
 def test_run_enhancement_keeps_going_after_one_photo_fails(

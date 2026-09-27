@@ -11,13 +11,13 @@ import numpy as np
 import pytest
 
 from app.enhancement.engine.metrics import (
+    as_linear_float01,
     color_metrics,
     dynamic_range_metrics,
     exposure_metrics,
     measure_all,
     noise_metrics,
     sharpness_metrics,
-    to_float01,
 )
 from app.enhancement.engine.scoring import score_report
 
@@ -96,13 +96,13 @@ def test_noise_increases_with_sigma() -> None:
     assert loud["luma_noise"] > quiet["luma_noise"]
 
 
-def test_to_float01_accepts_common_dtypes() -> None:
+def test_as_linear_float01_accepts_common_dtypes() -> None:
     u8 = np.array([[[0, 128, 255]]], dtype=np.uint8)
-    f = to_float01(u8)
+    f = as_linear_float01(u8)
     assert f.dtype == np.float32
     assert f.max() == pytest.approx(1.0, abs=1e-3)
     u16 = np.array([[[0, 32768, 65535]]], dtype=np.uint16)
-    f16 = to_float01(u16)
+    f16 = as_linear_float01(u16)
     assert f16.max() == pytest.approx(1.0, abs=1e-3)
 
 
