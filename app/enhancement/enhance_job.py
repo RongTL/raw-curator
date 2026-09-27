@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 import numpy as np
@@ -208,23 +208,41 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
     return out
 
 
-def run_enhancement() -> None:
+@dataclass(frozen=True)
+class EnhanceSummary:
+    enhanced: int = 0
+    skipped: int = 0  # non-RAW or missing source; nothing written
+    failed: int = 0  # raised mid-chain; source left untouched, batch continued
+
+
+def run_enhancement() -> EnhanceSummary:
     warmup()
     items = _candidates()
     if not items:
         console.print("[yellow]No photos to enhance.[/yellow]")
-        return
+        return EnhanceSummary()
     console.print(f"[cyan]Enhancing {len(items)} photo(s).[/cyan]")
-    enhanced = 0
-    skipped = 0
+    enhanced = skipped = failed = 0
     with Progress() as progress:
         task = progress.add_task("enhance", total=len(items))
         for photo, face_boxes in items:
-            out = _enhance_one(photo, face_boxes)
-            if out:
-                enhanced += 1
-                console.print(f"  -> {out}")
+            try:
+                out = _enhance_one(photo, face_boxes)
+            except Exception:  # noqa: BLE001 — one bad frame must not sink the batch
+                failed += 1
+                log.exception("enhance failed for %s; source left in place", photo["source_path"])
+                console.print(f"  [red]x {Path(photo['source_path']).name}: see log[/red]")
             else:
-                skipped += 1
+                if out:
+                    enhanced += 1
+                    console.print(f"  -> {out}")
+                else:
+                    skipped += 1
             progress.advance(task)
-    console.print(f"[green]Enhancement complete:[/green] enhanced={enhanced} skipped={skipped}")
+    summary = EnhanceSummary(enhanced=enhanced, skipped=skipped, failed=failed)
+    colour = "red" if failed else "green"
+    console.print(
+        f"[{colour}]Enhancement complete:[/{colour}] "
+        f"enhanced={enhanced} skipped={skipped} failed={failed}"
+    )
+    return summary

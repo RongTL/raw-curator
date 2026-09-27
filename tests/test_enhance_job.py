@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -54,3 +56,30 @@ def test_persist_report_upserts_one_row_per_photo(tmp_db: Session) -> None:
     assert rows[0].score_q == 91.5
     assert rows[0].skin_hue_var == 0.02
     assert rows[0].mean_luma == 128.0
+
+
+def test_run_enhancement_keeps_going_after_one_photo_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.enhancement import enhance_job
+
+    photos = [
+        ({"hash": "bad", "source_path": "/x/bad.cr3"}, []),
+        ({"hash": "ok", "source_path": "/x/ok.cr3"}, []),
+    ]
+    seen: list[str] = []
+
+    def fake_enhance_one(photo: dict[str, object], faces: list[object]) -> Path | None:
+        seen.append(str(photo["hash"]))
+        if photo["hash"] == "bad":
+            raise RuntimeError("darktable-cli exploded")
+        return tmp_path / "ok.tif"
+
+    monkeypatch.setattr(enhance_job, "warmup", lambda: None)
+    monkeypatch.setattr(enhance_job, "_candidates", lambda: photos)
+    monkeypatch.setattr(enhance_job, "_enhance_one", fake_enhance_one)
+
+    summary = enhance_job.run_enhancement()
+
+    assert seen == ["bad", "ok"]
+    assert (summary.enhanced, summary.skipped, summary.failed) == (1, 0, 1)
