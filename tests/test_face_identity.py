@@ -76,3 +76,30 @@ def test_identity_guard_does_not_modify_after_in_place() -> None:
     )
     assert np.array_equal(after, snapshot)  # input `after` untouched
     assert int(out[20, 20, 0]) == 0  # the copy was reverted
+
+
+def test_identity_guard_skips_a_box_whose_embed_raises() -> None:
+    from app.enhancement.face_restore import guard_faces
+
+    before = np.zeros((100, 100, 3), dtype=np.uint8)
+    after = before.copy()
+    after[10:50, 10:50] = 255  # box1 (40x40): restored bright
+    after[60:90, 60:90] = 255  # box2 (30x30): restored bright
+
+    def embed(crop: Array) -> Array:
+        if crop.shape[0] == 40:  # box1 crop -> embedder blows up
+            raise RuntimeError("embed failed")
+        # box2 (30x30): dark before -> [1, 0]; bright after -> [0, 1] (drift)
+        if float(crop.mean()) < 128:
+            return np.array([1.0, 0.0], dtype=np.float32)
+        return np.array([0.0, 1.0], dtype=np.float32)
+
+    out = guard_faces(
+        before,
+        after,
+        [(10, 10, 40, 40), (60, 60, 30, 30)],
+        embed=embed,
+        min_similarity=0.5,
+    )
+    assert int(out[20, 20, 0]) == 255  # box1 kept: guard skipped the raising box
+    assert int(out[70, 70, 0]) == 0  # box2 was still judged and reverted (drift)

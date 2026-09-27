@@ -39,8 +39,17 @@ def guard_faces(
         x1, y1 = min(x + bw, w), min(y + bh, h)
         if x1 <= x0 or y1 <= y0:
             continue
-        ref = embed(before[y0:y1, x0:x1]).astype(np.float32)
-        v = embed(after[y0:y1, x0:x1]).astype(np.float32)
+        try:
+            ref = embed(before[y0:y1, x0:x1]).astype(np.float32)
+            v = embed(after[y0:y1, x0:x1]).astype(np.float32)
+        except Exception as exc:  # noqa: BLE001 - guard is optional; keep the restored crop
+            log.warning(
+                "identity guard embed failed for face at (%d,%d): %s; keeping restored crop",
+                x0,
+                y0,
+                exc,
+            )
+            continue
         cos = float(v @ ref / (np.linalg.norm(v) * np.linalg.norm(ref) + 1e-8))
         if cos < min_similarity:
             log.warning(
@@ -92,7 +101,9 @@ class CodeFormerModel:
 
     The ``CodeFormer`` net is loaded in ``__enter__`` and reused across images.
     ``FaceRestoreHelper`` is rebuilt per call inside ``apply`` because it holds
-    per-image state (cropped faces, affine transforms).
+    per-image state (cropped faces, affine transforms). The ArcFace recognition
+    net (~170 MB) used by the identity guard shares this step's GPU slot and is
+    released in ``close()``.
     """
 
     def __init__(self) -> None:
