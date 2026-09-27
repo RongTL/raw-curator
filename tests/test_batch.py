@@ -128,3 +128,25 @@ def test_x2_master_lands_at_the_target_resolution(env, monkeypatch: pytest.Monke
     master = tifffile.imread(tmp_path / "photos" / "exported" / "A.tif")
     # fixture develops a (64, 96, 3) frame; 200% target -> exactly 2x each dim.
     assert master.shape == (128, 192, 3)
+
+
+def test_missing_source_is_skipped_with_a_warning(env, caplog: pytest.LogCaptureFixture) -> None:
+    tmp_path, fake_develop, _ = env
+    missing = PhotoCandidate(
+        "Z", str(tmp_path / "photos" / "incoming" / "GONE.CR3"), "raw", "keep_and_enhance"
+    )
+    with caplog.at_level("WARNING"):
+        summary = batch.run_batch([(missing, [])], develop=fake_develop)
+    assert (summary.skipped, summary.enhanced) == (1, 0)
+    assert "source missing" in caplog.text
+
+
+def test_non_raw_source_is_skipped_with_a_warning(env, caplog: pytest.LogCaptureFixture) -> None:
+    tmp_path, fake_develop, _ = env
+    p = tmp_path / "photos" / "incoming" / "S.JPG"
+    p.write_bytes(b"jpeg")
+    jpeg = PhotoCandidate("S", str(p), "jpeg", "keep_and_enhance")
+    with caplog.at_level("WARNING"):
+        summary = batch.run_batch([(jpeg, [])], develop=fake_develop)
+    assert summary.skipped == 1
+    assert "is not RAW" in caplog.text

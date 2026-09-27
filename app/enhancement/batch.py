@@ -267,7 +267,17 @@ def run_batch(
         task = progress.add_task("enhance: develop + plan", total=len(items))
         for it in items:
             src = Path(it.photo.source_path)
-            if not src.exists() or (it.photo.file_kind not in (None, "raw")):
+            kind = it.photo.file_kind
+            if not src.exists():
+                log.warning("skipping %s: source missing", src)
+                it.failed = "skipped"
+                skipped += 1
+            elif kind not in (None, "raw"):
+                log.warning(
+                    "skipping %s: file_kind=%s is not RAW; the AI chain needs sensor data",
+                    src,
+                    kind,
+                )
                 it.failed = "skipped"
                 skipped += 1
             else:
