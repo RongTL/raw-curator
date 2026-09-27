@@ -48,6 +48,7 @@ from app.enhancement.engine.plan import QualityReport
 from app.enhancement.engine.runner import run_plan
 from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import write_tiff16
+from app.enhancement.sidecar import resolve_xmp
 from app.models import Decision, Face, Photo, PhotoQualityReport
 from app.paths import relative_subpath
 from app.workers.gpu_worker import warmup
@@ -106,12 +107,6 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
     return snapshots
 
 
-def _xmp_for(source_path: str) -> Path | None:
-    src = Path(source_path)
-    candidate = settings.xmp / (src.stem + ".xmp")
-    return candidate if candidate.exists() else None
-
-
 def persist_report(sess: Session, photo_hash: str, report: QualityReport) -> None:
     """Upsert the quality_reports row for this photo from a QualityReport.
 
@@ -153,7 +148,9 @@ def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | Non
         log.warning("skipping enhance for non-RAW source (kind=%s): %s", file_kind, src.name)
         return None
 
-    full_tiff = darktable_cli(src, xmp=_xmp_for(photo.source_path))
+    full_tiff = darktable_cli(
+        src, xmp=resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
+    )
     rgb_f01 = _load_linear_float(full_tiff)
     native_h, native_w = rgb_f01.shape[:2]
 
