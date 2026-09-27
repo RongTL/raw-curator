@@ -75,10 +75,10 @@ test:
 	$(DEV) pytest -q
 
 lint:
-	$(DEV) sh -c "ruff check app/ tests/ && ruff format --check app/ tests/"
+	$(DEV) sh -c "ruff check app/ tests/ scripts/ && ruff format --check app/ tests/ scripts/"
 
 format:
-	$(DEV) ruff format app/ tests/
+	$(DEV) ruff format app/ tests/ scripts/
 
 typecheck:
 	$(DEV) mypy app/

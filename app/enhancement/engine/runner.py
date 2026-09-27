@@ -138,7 +138,7 @@ def _apply_ai(name: str, rgb_u8: np.ndarray, params: dict, has_faces: bool) -> n
     if name == "codeformer_restore":
         if not has_faces:
             return rgb_u8
-        return codeformer_restore(rgb_u8, faces=None, weight=params.get("weight", 0.85))
+        return codeformer_restore(rgb_u8, weight=params.get("weight", 0.85))
     raise ValueError(f"unknown AI step: {name}")
 
 

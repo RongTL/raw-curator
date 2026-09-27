@@ -10,11 +10,11 @@ the resolution recovery.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import numpy as np
 
 from app.enhancement.downsample import lanczos_resize
+from app.enhancement.weights import realesrgan_weights
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def realesrgan_x2(
     except ImportError as exc:
         log.warning("realesrgan imports failed: %s — falling back to Lanczos x2", exc)
         return _lanczos_x2(rgb)
-    weights = Path("/data/models/RealESRGAN_x2plus.pth")
+    weights = realesrgan_weights()
     if not weights.exists():
         log.warning("realesrgan weights missing at %s — falling back to Lanczos x2", weights)
         return _lanczos_x2(rgb)

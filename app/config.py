@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     enhance_backlit_shadow_lift: float = 0.4  # 0 disables; ~0.4 natural; >0.7 looks HDR
     enhance_backlit_highlight_protect: float = 0.15
     enhance_out_format: str = "tiff16"
+    # VRAM-fit knobs for the AI steps (6 GB RTX 2060 defaults).
+    scunet_tile: int = 512  # SCUNet has no native tiling; output tile edge in px
+    scunet_tile_pad: int = 32  # reflective context around each tile
+    codeformer_max_long_edge: int = 2048  # RetinaFace runs on the full frame; cap it
 
     jpeg_quality: int = 92
     jpeg_long_edge: int = 0  # 0 = native resolution; e.g. 4000 to cap for sharing

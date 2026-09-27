@@ -3,27 +3,35 @@
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 
 import numpy as np
+
+from app.config import settings
+from app.enhancement.weights import scunet_weights
 
 log = logging.getLogger(__name__)
 
 # SCUNet has no native tiling; running a full 4200x2800 frame through it on a
 # 6 GB card OOMs in the deeper batchnorm layers. We process in non-overlapping
-# output tiles padded with reflective context so the model sees enough beyond
-# each tile to avoid edge artifacts. multiple=64 satisfies SCUNet's window
-# attention and 3-stage downsample divisibility.
-_TILE = int(os.environ.get("RAWCURATOR_SCUNET_TILE", "512"))
-_PAD = int(os.environ.get("RAWCURATOR_SCUNET_TILE_PAD", "32"))
+# output tiles (settings.scunet_tile) padded with reflective context
+# (settings.scunet_tile_pad) so the model sees enough beyond each tile to avoid
+# edge artifacts. multiple=64 satisfies SCUNet's window attention and 3-stage
+# downsample divisibility.
 _MULTIPLE = 64
 
 
-def _tiled_forward(model, x, multiple: int = _MULTIPLE, tile: int = _TILE, pad: int = _PAD):
+def _tiled_forward(
+    model,
+    x,
+    multiple: int = _MULTIPLE,
+    tile: int | None = None,
+    pad: int | None = None,
+):
     import torch  # type: ignore
     import torch.nn.functional as F  # type: ignore
 
+    tile = settings.scunet_tile if tile is None else tile
+    pad = settings.scunet_tile_pad if pad is None else pad
     _, _, h_in, w_in = x.shape
     out = torch.zeros_like(x)
     for ty in range(0, h_in, tile):
@@ -61,7 +69,7 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
         return rgb
     strength = float(min(1.0, strength))
 
-    weights = Path("/data/models/scunet_color_real_psnr.pth")
+    weights = scunet_weights()
     if not weights.exists():
         log.warning("scunet weights missing at %s — skipping denoise", weights)
         return rgb
