@@ -152,9 +152,7 @@ def test_non_raw_source_is_skipped_with_a_warning(env, caplog: pytest.LogCapture
     assert "is not RAW" in caplog.text
 
 
-def test_model_load_failure_fails_only_its_photos(
-    env, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_model_load_failure_fails_only_its_photos(env, monkeypatch: pytest.MonkeyPatch) -> None:
     tmp_path, fake_develop, _ = env
 
     class RaisingEnter:
