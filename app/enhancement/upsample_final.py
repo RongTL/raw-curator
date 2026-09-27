@@ -8,8 +8,7 @@
 
 from __future__ import annotations
 
-import numpy as np
-
+from app.arrays import Array
 from app.config import settings
 from app.enhancement.downsample import lanczos_resize
 
@@ -28,7 +27,7 @@ def _parse_target(spec: str, native: tuple[int, int]) -> tuple[int, int]:
     raise ValueError(f"unrecognised enhance_target_res: {spec!r}")
 
 
-def upsample_final(arr: np.ndarray, native_size: tuple[int, int]) -> np.ndarray:
+def upsample_final(arr: Array, native_size: tuple[int, int]) -> Array:
     target = _parse_target(settings.enhance_target_res, native_size)
     h, w = arr.shape[:2]
     if (w, h) == target:

@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from rich.console import Console
 from sqlalchemy import select, update
+from sqlalchemy.orm import Session
 
 from app.clustering.clip_cluster import cluster_embeddings
 from app.clustering.exif_burst import burst_groups
@@ -19,7 +20,7 @@ log = logging.getLogger(__name__)
 console = Console()
 
 
-def _create_cluster(sess, kind: str, members: list[Photo]) -> Cluster:
+def _create_cluster(sess: Session, kind: str, members: list[Photo]) -> Cluster:
     cluster = Cluster(kind=kind, size=len(members))
     sess.add(cluster)
     sess.flush()
@@ -53,9 +54,7 @@ def run_clustering() -> None:
             _create_cluster(sess, "burst", group)
 
         # CLIP HDBSCAN over photos not already clustered.
-        rows = sess.execute(
-            select(PhotoEmbedding.photo_hash, PhotoEmbedding.vec)
-        ).all()
+        rows = sess.execute(select(PhotoEmbedding.photo_hash, PhotoEmbedding.vec)).all()
         if not rows:
             console.print("[yellow]No CLIP embeddings — skipping HDBSCAN.[/yellow]")
             return

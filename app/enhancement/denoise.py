@@ -3,27 +3,41 @@
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+from app.arrays import Array
+from app.config import settings
+from app.enhancement.weights import scunet_weights
+
+if TYPE_CHECKING:
+    import torch
 
 log = logging.getLogger(__name__)
 
 # SCUNet has no native tiling; running a full 4200x2800 frame through it on a
 # 6 GB card OOMs in the deeper batchnorm layers. We process in non-overlapping
-# output tiles padded with reflective context so the model sees enough beyond
-# each tile to avoid edge artifacts. multiple=64 satisfies SCUNet's window
-# attention and 3-stage downsample divisibility.
-_TILE = int(os.environ.get("RAWCURATOR_SCUNET_TILE", "512"))
-_PAD = int(os.environ.get("RAWCURATOR_SCUNET_TILE_PAD", "32"))
+# output tiles (settings.scunet_tile) padded with reflective context
+# (settings.scunet_tile_pad) so the model sees enough beyond each tile to avoid
+# edge artifacts. multiple=64 satisfies SCUNet's window attention and 3-stage
+# downsample divisibility.
 _MULTIPLE = 64
 
 
-def _tiled_forward(model, x, multiple: int = _MULTIPLE, tile: int = _TILE, pad: int = _PAD):
-    import torch  # type: ignore
-    import torch.nn.functional as F  # type: ignore
+def _tiled_forward(
+    model: Callable[[torch.Tensor], torch.Tensor],
+    x: torch.Tensor,
+    multiple: int = _MULTIPLE,
+    tile: int | None = None,
+    pad: int | None = None,
+) -> torch.Tensor:
+    import torch
+    import torch.nn.functional as F
 
+    tile = settings.scunet_tile if tile is None else tile
+    pad = settings.scunet_tile_pad if pad is None else pad
     _, _, h_in, w_in = x.shape
     out = torch.zeros_like(x)
     for ty in range(0, h_in, tile):
@@ -50,7 +64,7 @@ def _tiled_forward(model, x, multiple: int = _MULTIPLE, tile: int = _TILE, pad: 
     return out
 
 
-def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
+def scunet_denoise(rgb: Array, strength: float = 1.0) -> Array:
     """Run SCUNet, then blend the denoised result with the input.
 
     `strength` in [0, 1]: 1.0 returns pure SCUNet, 0.0 returns the input
@@ -61,12 +75,12 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
         return rgb
     strength = float(min(1.0, strength))
 
-    weights = Path("/data/models/scunet_color_real_psnr.pth")
+    weights = scunet_weights()
     if not weights.exists():
         log.warning("scunet weights missing at %s — skipping denoise", weights)
         return rgb
     try:
-        import torch  # type: ignore
+        import torch
 
         from app.enhancement._scunet_arch import SCUNet
     except ImportError as exc:
@@ -75,7 +89,9 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if device.type == "cuda" else torch.float32
-    model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(device, dtype=dtype)
+    model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(  # type: ignore[no-untyped-call]
+        device, dtype=dtype
+    )
     ckpt = torch.load(str(weights), map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt.get("params") or ckpt.get("params_ema") or ckpt)
     model.eval()

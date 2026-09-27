@@ -17,13 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import session_scope
+from app.decision.rules import ENHANCE_ACTIONS
 from app.ingest.extensions import ALL_SUPPORTED_EXTS, JPEG_EXTS, TIFF_EXTS
 from app.models import Cluster, Decision, Photo
 from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 
-ENHANCE_ACTIONS = ("keep_and_enhance", "enhance_only")
 
 _warned_no_schema = False
 
@@ -99,9 +99,7 @@ def _submit_progress() -> tuple[int, int]:
         )
         decided = _count(
             sess,
-            select(func.count())
-            .select_from(Decision)
-            .where(Decision.selected != "undecided"),
+            select(func.count()).select_from(Decision).where(Decision.selected != "undecided"),
         )
     return applied, decided
 
@@ -166,9 +164,7 @@ def batch_summary() -> dict[str, int]:
             photos = _count(sess, select(func.count()).select_from(Photo))
             decided = _count(
                 sess,
-                select(func.count())
-                .select_from(Decision)
-                .where(Decision.selected != "undecided"),
+                select(func.count()).select_from(Decision).where(Decision.selected != "undecided"),
             )
     except OperationalError as exc:
         _warn_no_schema_once(exc)

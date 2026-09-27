@@ -30,8 +30,9 @@ For each batch:
 3. **Score** — CLIP ViT-L/14 + aesthetic-predictor v2.5 + MUSIQ + MANIQA
    + InsightFace, all FP16 on a single GPU worker, stage-by-stage to fit
    6 GB VRAM.
-4. **Cluster** — EXIF burst → pHash dedupe → CLIP cosine via HDBSCAN; one
-   recommendation per cluster.
+4. **Cluster** — EXIF burst grouping, then CLIP HDBSCAN across the rest of
+   the batch; one recommendation per cluster (ranked 0.6·technical +
+   0.4·aesthetic).
 5. **Review** — the Control Center (FastAPI + a single-page React UI,
    CDN, no Node build) shows a stage timeline and a review panel
    (All/Clusters views). Stage decisions per photo with keyboard
@@ -142,21 +143,23 @@ make reset
 
 | Target            | What it does                                                    |
 |-------------------|-----------------------------------------------------------------|
-| `image`           | `podman build -t raw-curator:latest -f Containerfile .`          |
+| `image`           | `podman build -t raw-curator:latest -f Containerfile .` (from scratch; downloads ~5 GB of wheels) |
+| `image-warm`      | Same build, but seeds site-packages from the current `raw-curator:latest` so only changed/added packages are fetched. Minutes instead of an hour on a slow link. |
 | `download-models` | Fetches CLIP, SigLIP, Real-ESRGAN, SCUNet, CodeFormer, InsightFace into `models/` |
-| `reset`           | Drops DB + clears `cache/` + clears `photos/{library,archive,quarantine,exported,jpeg}/`; runs `alembic upgrade head` |
+| `reset`           | `raw-curator reset --force`: drops DB, empties `cache/{previews,thumbs}/` and `photos/{library,exported,jpeg}/`, runs `alembic upgrade head` |
 | `ingest`          | Walk `photos/incoming/` → DB rows + previews + thumbs           |
 | `filter`          | Blur / pHash / exposure                                         |
 | `score`           | GPU scoring: CLIP, IQA, faces (stage-by-stage)                  |
-| `cluster`         | EXIF burst + pHash dedupe + CLIP HDBSCAN + recommendation       |
+| `cluster`         | EXIF burst + CLIP HDBSCAN + recommendation                      |
 | `run`             | `ingest → filter → score → cluster` in one shot (no UI)         |
 | `serve`           | Control Center UI on `http://0.0.0.0:8080` — runs every stage, streams logs, live resource monitor |
 | `submit`          | Apply staged decisions (file moves) outside the UI              |
 | `enhance`         | Auto Enhancement Engine: RAW → classical + AI → 16-bit TIFF for every decided photo |
 | `export-jpeg`     | RAWs (`library/`) and TIFFs (`exported/`) → share-ready JPEGs in `photos/jpeg/` |
 | `shell`           | Drop into a bash shell inside the container                     |
-| `test`            | `pytest -q` inside the container                                |
-| `lint`            | `ruff check app/ tests/`                                        |
+| `test`            | `pytest -q` inside the container; `app/` and `tests/` are bind-mounted from the working tree, so no rebuild is needed |
+| `lint`            | `ruff check` + `ruff format --check` over `app/ tests/ scripts/` |
+| `format`          | `ruff format app/ tests/ scripts/` (rewrites files)              |
 | `typecheck`       | `mypy app/`                                                     |
 | `clean`           | `podman compose down -v` and remove the image                   |
 
@@ -168,8 +171,6 @@ make reset
 photos/
   incoming/      <- drop RAWs here at session start; `no` RAWs stay here until enhance deletes them
   library/       <- `yes` RAWs (kept untouched)
-  archive/       <- legacy bucket; created + wiped by `make reset`, no longer populated by routing
-  quarantine/    <- legacy bucket; created + wiped by `make reset`, no longer populated by routing
   exported/      <- enhanced 16-bit TIFFs (one per decided photo)
   jpeg/          <- share-ready 8-bit JPEGs from `make export-jpeg` (optional)
 
@@ -215,9 +216,9 @@ The most useful overrides:
 | `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT` | `0.4` | `0` disables; `~0.4` is natural; `>0.7` starts looking HDR.            |
 | `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT` | `0.15` | How aggressively the lift rolls off above ~65% luminance.        |
 | `RAWCURATOR_ENHANCE_TARGET_RES`   | `200%`        | `native` (downsample back to source) \| `200%` (keep Real-ESRGAN's 2x output — 24 MP source becomes ~96 MP, TIFFs ~4x larger on disk) \| `WIDTHxHEIGHT` (explicit pixel size). |
+| `RAWCURATOR_SCUNET_TILE` / `_TILE_PAD` | `512` / `32` | SCUNet tile edge and reflective padding (px). Lower the tile (multiples of 64) on OOM. |
+| `RAWCURATOR_CODEFORMER_MAX_LONG_EDGE` | `2048`    | Long-edge cap fed to CodeFormer's face detector, which runs on the full frame. Lower on OOM. |
 | `RAWCURATOR_BURST_SECONDS`        | `2`           | EXIF timestamp window for burst grouping                                |
-| `RAWCURATOR_PHASH_HAMMING_THRESHOLD` | `8`        | Within-burst pHash distance for "duplicate"                             |
-| `RAWCURATOR_CLIP_COSINE_THRESHOLD`| `0.92`        | CLIP cosine threshold for cross-batch "duplicate"                       |
 | `RAWCURATOR_CPU_WORKERS`          | `os.cpu_count()` (e.g. `8` on Ryzen 3 3100) | Process pool size for ingest / filter / export-jpeg. Set lower to cap memory pressure. |
 | `RAWCURATOR_JPEG_QUALITY`         | `92`          | JPEG quality used by `make export-jpeg`                                 |
 | `RAWCURATOR_JPEG_LONG_EDGE`       | `0`           | `0` keeps native resolution; e.g. `4000` caps the long edge for sharing |

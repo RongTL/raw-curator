@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 import torch
 from rich.console import Console
@@ -34,7 +34,7 @@ def warmup() -> None:
         torch.cuda.empty_cache()
 
 
-def chunked(items: list, size: int) -> Iterator[list]:
+def chunked[T](items: Sequence[T], size: int) -> Iterator[Sequence[T]]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
 

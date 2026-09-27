@@ -18,9 +18,12 @@ Step dispatch lives here. The runner manages three impedance mismatches:
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
+from app.arrays import Array
 from app.config import settings
 from app.enhancement.classical import (
     color,
@@ -43,7 +46,7 @@ log = logging.getLogger(__name__)
 
 def _free_gpu() -> None:
     try:
-        import torch  # type: ignore
+        import torch
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -51,23 +54,28 @@ def _free_gpu() -> None:
         pass
 
 
-def _to_u8(rgb_f01: np.ndarray) -> np.ndarray:
+def _to_u8(rgb_f01: Array) -> Array:
     return (np.clip(rgb_f01, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
 
-def _from_u8(rgb_u8: np.ndarray) -> np.ndarray:
+def _from_u8(rgb_u8: Array) -> Array:
     return (rgb_u8.astype(np.float32) * (1.0 / 255.0)).astype(np.float32)
 
 
 _PRE_AI = {
-    "exposure_gamma", "shadow_lift", "highlight_recover", "backlit_recover",
-    "highlight_rolloff", "white_balance", "saturation_adjust",
+    "exposure_gamma",
+    "shadow_lift",
+    "highlight_recover",
+    "backlit_recover",
+    "highlight_rolloff",
+    "white_balance",
+    "saturation_adjust",
 }
 _AI = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
 _POST_AI = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}
 
 
-def _apply_classical(name: str, rgb_f01: np.ndarray, params: dict) -> np.ndarray:
+def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Array:
     if name == "exposure_gamma":
         return exposure.gamma_correct(rgb_f01, gain=params.get("gain", 0.0))
     if name == "shadow_lift":
@@ -125,7 +133,7 @@ def _apply_classical(name: str, rgb_f01: np.ndarray, params: dict) -> np.ndarray
     raise ValueError(f"unknown classical step: {name}")
 
 
-def _apply_ai(name: str, rgb_u8: np.ndarray, params: dict, has_faces: bool) -> np.ndarray:
+def _apply_ai(name: str, rgb_u8: Array, params: Mapping[str, Any], has_faces: bool) -> Array:
     if name == "scunet_denoise":
         return scunet_denoise(rgb_u8, strength=params.get("strength", 0.75))
     if name == "realesrgan_upscale":
@@ -133,15 +141,15 @@ def _apply_ai(name: str, rgb_u8: np.ndarray, params: dict, has_faces: bool) -> n
     if name == "codeformer_restore":
         if not has_faces:
             return rgb_u8
-        return codeformer_restore(rgb_u8, faces=None, weight=params.get("weight", 0.85))
+        return codeformer_restore(rgb_u8, weight=params.get("weight", 0.85))
     raise ValueError(f"unknown AI step: {name}")
 
 
 def run_plan(
-    rgb_f01: np.ndarray,
+    rgb_f01: Array,
     plan: EnhancementPlan,
     native_size: tuple[int, int],
-) -> np.ndarray:
+) -> Array:
     """Execute the plan, returning float32 RGB in [0, 1] at native_size (W, H)."""
     img = np.clip(rgb_f01, 0.0, 1.0).astype(np.float32)
 

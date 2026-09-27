@@ -21,11 +21,10 @@ import logging
 
 import numpy as np
 
-log = logging.getLogger(__name__)
+from app.arrays import Array
+from app.enhancement.colorspace import luma
 
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+log = logging.getLogger(__name__)
 
 _SHADOW_BIN_MAX = 0.15
 _HIGHLIGHT_BIN_MIN = 0.80
@@ -47,12 +46,11 @@ _HIGHLIGHT_PROTECT_RANGE = 0.30
 _MASK_WORK_MAX_EDGE = 768
 
 
-def _rgb_to_luma(rgb_u8: np.ndarray) -> np.ndarray:
-    f = rgb_u8.astype(np.float32) / 255.0
-    return _LUMA_R * f[..., 0] + _LUMA_G * f[..., 1] + _LUMA_B * f[..., 2]
+def _rgb_to_luma(rgb_u8: Array) -> Array:
+    return luma(rgb_u8.astype(np.float32) / 255.0)
 
 
-def is_backlit(luma01: np.ndarray) -> bool:
+def is_backlit(luma01: Array) -> bool:
     """Histogram-based backlit detector.
 
     Triggers only when the histogram is bimodal: dense deep shadows AND
@@ -73,14 +71,16 @@ def is_backlit(luma01: np.ndarray) -> bool:
     shadow_density = hist[:shadow_n].sum() / total
     highlight_density = hist[-highlight_n:].sum() / total
     midtone_density = hist[mid_lo:mid_hi].sum() / total
-    return (
+    # numpy comparisons yield numpy.bool_; callers (and the annotation) expect
+    # a real bool so identity checks like `is True` behave.
+    return bool(
         shadow_density >= _SHADOW_DENSITY_TRIGGER
         and highlight_density >= _HIGHLIGHT_DENSITY_TRIGGER
         and midtone_density <= _MIDTONE_DEFICIT_MAX
     )
 
 
-def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
+def _edge_preserving_luma(luma01: Array) -> Array | None:
     """Bilateral-filtered luminance, computed on a downscaled copy for speed.
 
     Returns None when cv2 is unavailable — callers must treat this as
@@ -94,11 +94,9 @@ def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
     the original luma at full resolution.
     """
     try:
-        import cv2  # type: ignore
+        import cv2
     except ImportError as exc:
-        log.warning(
-            "cv2 unavailable (%s) — backlit recovery requires opencv-python; skipping", exc
-        )
+        log.warning("cv2 unavailable (%s) — backlit recovery requires opencv-python; skipping", exc)
         return None
 
     h, w = luma01.shape
@@ -118,23 +116,21 @@ def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
     return smoothed.astype(np.float32) / 255.0
 
 
-def _lift_mask(local_luma: np.ndarray) -> np.ndarray:
+def _lift_mask(local_luma: Array) -> Array:
     return np.exp(-((local_luma - _LIFT_MASK_CENTRE) ** 2) / (2.0 * _LIFT_MASK_SIGMA**2))
 
 
-def _highlight_protect(local_luma: np.ndarray, strength: float) -> np.ndarray:
-    ramp = np.clip(
-        (local_luma - _HIGHLIGHT_PROTECT_KNEE) / _HIGHLIGHT_PROTECT_RANGE, 0.0, 1.0
-    )
+def _highlight_protect(local_luma: Array, strength: float) -> Array:
+    ramp = np.clip((local_luma - _HIGHLIGHT_PROTECT_KNEE) / _HIGHLIGHT_PROTECT_RANGE, 0.0, 1.0)
     return 1.0 - ramp * np.clip(strength, 0.0, 1.0)
 
 
 def recover_backlit(
-    rgb: np.ndarray,
+    rgb: Array,
     shadow_lift: float = 0.4,
     highlight_protect: float = 0.15,
     force: bool = False,
-) -> np.ndarray:
+) -> Array:
     """Apply backlit recovery if the image looks backlit (or `force=True`).
 
     Returns the input unchanged when not backlit and not forced, or when
@@ -143,15 +139,13 @@ def recover_backlit(
     if shadow_lift <= 0.0:
         return rgb
     if rgb.dtype != np.uint8 or rgb.ndim != 3 or rgb.shape[2] != 3:
-        raise ValueError(
-            f"recover_backlit expects HxWx3 uint8 RGB, got {rgb.dtype} {rgb.shape}"
-        )
+        raise ValueError(f"recover_backlit expects HxWx3 uint8 RGB, got {rgb.dtype} {rgb.shape}")
 
-    luma = _rgb_to_luma(rgb)
-    if not force and not is_backlit(luma):
+    lum = _rgb_to_luma(rgb)
+    if not force and not is_backlit(lum):
         return rgb
 
-    local_luma = _edge_preserving_luma(luma)
+    local_luma = _edge_preserving_luma(lum)
     if local_luma is None:
         return rgb  # cv2 missing — skip cleanly rather than degrade
     mask = _lift_mask(local_luma) * _highlight_protect(local_luma, highlight_protect)

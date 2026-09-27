@@ -16,5 +16,5 @@ def cache_url(container_path: str | None) -> str | None:
     if not container_path:
         return None
     if container_path.startswith(_CACHE_PREFIX):
-        return "/cache/" + container_path[len(_CACHE_PREFIX):]
+        return "/cache/" + container_path[len(_CACHE_PREFIX) :]
     return container_path

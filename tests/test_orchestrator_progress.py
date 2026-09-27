@@ -37,9 +37,7 @@ def test_filter_progress_counts_blur_var(env) -> None:
 
 def test_score_progress_requires_technical_and_aesthetic(env) -> None:
     sess, _ = env
-    sess.add(
-        Photo(hash="a" * 32, source_path="/x/a.cr3", technical_score=0.7, aesthetic_score=5.0)
-    )
+    sess.add(Photo(hash="a" * 32, source_path="/x/a.cr3", technical_score=0.7, aesthetic_score=5.0))
     sess.add(Photo(hash="b" * 32, source_path="/x/b.cr3", technical_score=0.4))
     sess.flush()
     assert progress.stage_progress("score") == (1, 2)

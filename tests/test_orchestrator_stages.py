@@ -7,7 +7,13 @@ from app.orchestrator.stages import STAGE_BY_NAME, STAGES, leg_stages
 
 def test_stage_order_matches_pipeline() -> None:
     assert [s.name for s in STAGES] == [
-        "ingest", "filter", "score", "cluster", "submit", "enhance", "export-jpeg",
+        "ingest",
+        "filter",
+        "score",
+        "cluster",
+        "submit",
+        "enhance",
+        "export-jpeg",
     ]
 
 

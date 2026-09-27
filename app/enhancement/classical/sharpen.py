@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import numpy as np
 
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+from app.arrays import Array
+from app.enhancement.colorspace import luma
 
 
-def _gaussian_blur(channel: np.ndarray, radius: float) -> np.ndarray:
+def _gaussian_blur(channel: Array, radius: float) -> Array:
     try:
-        import cv2  # type: ignore
+        import cv2
+
         k = max(3, int(round(radius * 6.0)) | 1)
         return cv2.GaussianBlur(channel, (k, k), sigmaX=float(radius))
     except ImportError:
@@ -32,18 +32,18 @@ def _gaussian_blur(channel: np.ndarray, radius: float) -> np.ndarray:
 
 
 def unsharp_mask(
-    rgb: np.ndarray,
+    rgb: Array,
     amount: float = 0.6,
     radius: float = 1.4,
     threshold: float = 0.005,
-) -> np.ndarray:
+) -> Array:
     if amount <= 0.0:
         return rgb
-    L = (_LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2]).astype(np.float32)
-    blurred = _gaussian_blur(L, radius)
-    detail = L - blurred
+    lum = luma(rgb)
+    blurred = _gaussian_blur(lum, radius)
+    detail = lum - blurred
     if threshold > 0.0:
         detail = np.where(np.abs(detail) < threshold, 0.0, detail)
-    L_sharpened = L + float(amount) * detail
-    ratio = np.where(L > 1e-6, L_sharpened / np.maximum(L, 1e-6), 1.0)[..., None]
+    lum_sharpened = lum + float(amount) * detail
+    ratio = np.where(lum > 1e-6, lum_sharpened / np.maximum(lum, 1e-6), 1.0)[..., None]
     return np.clip(rgb * ratio, 0.0, 1.0).astype(np.float32)

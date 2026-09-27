@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
+from app.arrays import Array
 from app.config import settings
 
 
@@ -16,7 +17,7 @@ from app.config import settings
 class DetectedFace:
     bbox: tuple[int, int, int, int]
     det_score: float
-    embedding: np.ndarray
+    embedding: Array
 
 
 class FaceDetector:

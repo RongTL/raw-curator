@@ -36,14 +36,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock* ./
+# Dev tools (pytest, ruff, mypy) ship in the image on purpose: `make test`,
+# `make lint`, and `make typecheck` run inside this container, and the extra
+# ~100 MB is noise next to the CUDA/Torch layers.
+COPY pyproject.toml poetry.lock ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/pypoetry \
-    poetry install --no-root --without dev
+    poetry install --no-root
 
 COPY app/ ./app/
 COPY db/ ./db/
 COPY scripts/ ./scripts/
+COPY tests/ ./tests/
 COPY alembic.ini README.md ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/pypoetry \

@@ -13,7 +13,6 @@ Idempotent: every step checks for an existing artifact before downloading.
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 import urllib.request
@@ -21,6 +20,14 @@ import zipfile
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
+
+from app.config import settings
+from app.enhancement.weights import (
+    CODEFORMER_FACELIB_DIR,
+    CODEFORMER_FILE,
+    REALESRGAN_FILE,
+    SCUNET_FILE,
+)
 
 HF_REPOS = [
     "laion/CLIP-ViT-L-14-laion2B-s32B-b82K",
@@ -33,17 +40,17 @@ HF_REPOS = [
 DIRECT_FILES: list[tuple[str, str, int]] = [
     (
         "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
-        "RealESRGAN_x2plus.pth",
+        REALESRGAN_FILE,
         60_000_000,
     ),
     (
         "https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth",
-        "scunet_color_real_psnr.pth",
+        SCUNET_FILE,
         60_000_000,
     ),
     (
         "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth",
-        "CodeFormer/weights/CodeFormer/codeformer.pth",
+        CODEFORMER_FILE,
         300_000_000,
     ),
     # CodeFormer's RetinaFace detector and parsing net are normally fetched at
@@ -52,19 +59,17 @@ DIRECT_FILES: list[tuple[str, str, int]] = [
     # symlinks them into the package's expected path.
     (
         "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/detection_Resnet50_Final.pth",
-        "CodeFormer/weights/facelib/detection_Resnet50_Final.pth",
+        f"{CODEFORMER_FACELIB_DIR}/detection_Resnet50_Final.pth",
         100_000_000,
     ),
     (
         "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/parsing_parsenet.pth",
-        "CodeFormer/weights/facelib/parsing_parsenet.pth",
+        f"{CODEFORMER_FACELIB_DIR}/parsing_parsenet.pth",
         80_000_000,
     ),
 ]
 
-INSIGHTFACE_ZIP = (
-    "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
-)
+INSIGHTFACE_ZIP = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
 
 
 def _download(url: str, dest: Path) -> None:
@@ -113,7 +118,7 @@ def _ensure_hf(models_root: Path) -> None:
 
 
 def main() -> None:
-    models_root = Path(os.environ.get("RAWCURATOR_MODELS", "/data/models"))
+    models_root = settings.models
     models_root.mkdir(parents=True, exist_ok=True)
     print(f"Target: {models_root}")
     # Each step is independent; don't let one failure block the rest.

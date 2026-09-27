@@ -118,16 +118,28 @@ def test_no_faces_no_codeformer() -> None:
 def test_plan_order_matches_spec_section_7() -> None:
     """All pre-AI steps precede AI steps, which precede post-AI."""
     pre = {
-        "exposure_gamma", "shadow_lift", "highlight_recover", "backlit_recover",
-        "highlight_rolloff", "white_balance", "saturation_adjust",
+        "exposure_gamma",
+        "shadow_lift",
+        "highlight_recover",
+        "backlit_recover",
+        "highlight_rolloff",
+        "white_balance",
+        "saturation_adjust",
     }
     ai = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
     post = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}
 
-    plan = plan_from_report(_baseline(
-        mean_luma=70.0, highlight_clip=0.05, oversat_ratio=0.10,
-        avg_saturation=0.60, luma_noise=5.0, lap_var=40.0,
-    ), has_faces=True)
+    plan = plan_from_report(
+        _baseline(
+            mean_luma=70.0,
+            highlight_clip=0.05,
+            oversat_ratio=0.10,
+            avg_saturation=0.60,
+            luma_noise=5.0,
+            lap_var=40.0,
+        ),
+        has_faces=True,
+    )
     names = _step_names(plan)
 
     seen_ai = False
@@ -143,3 +155,20 @@ def test_plan_order_matches_spec_section_7() -> None:
             seen_post = True
         else:
             raise AssertionError(f"unknown step kind: {name}")
+
+
+def test_denoise_switch_off_skips_scunet_even_when_noisy() -> None:
+    plan = plan_from_report(_baseline(luma_noise=6.0), denoise=False)
+    assert "scunet_denoise" not in _step_names(plan)
+
+
+def test_face_restore_switch_off_skips_codeformer_even_with_faces() -> None:
+    plan = plan_from_report(_baseline(), has_faces=True, face_restore=False)
+    assert "codeformer_restore" not in _step_names(plan)
+
+
+def test_backlit_switch_off_skips_backlit_recover_even_when_bimodal() -> None:
+    plan = plan_from_report(
+        _baseline(shadow_clip=0.25, highlight_clip=0.15), backlit_recovery=False
+    )
+    assert "backlit_recover" not in _step_names(plan)

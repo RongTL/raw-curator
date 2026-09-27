@@ -35,3 +35,10 @@ def test_tier_from_scores_threshold() -> None:
     """tier_from_scores no longer drives routing but stays as a display hint."""
     assert tier_from_scores(0.8, 8.0) == "high"
     assert tier_from_scores(0.1, 2.0) == "low"
+
+
+def test_enhance_actions_are_exactly_the_rule_actions() -> None:
+    from app.decision.rules import ENHANCE_ACTIONS, RULES
+
+    assert set(ENHANCE_ACTIONS) == {r.action for r in RULES.values()}
+    assert set(ENHANCE_ACTIONS) == {"keep_and_enhance", "enhance_only"}

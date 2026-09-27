@@ -1,8 +1,4 @@
-"""Walk photos/incoming and yield candidate image file paths.
-
-Originally RAW-only; now accepts every kind supported by `app.ingest.decode`.
-The `RAW_SUFFIXES` constant is retained for callers that want a RAW-only filter.
-"""
+"""Walk photos/incoming and yield every file whose kind `app.ingest.decode` supports."""
 
 from __future__ import annotations
 
@@ -10,9 +6,6 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from app.ingest.decode import all_supported_exts
-from app.ingest.extensions import RAW_EXTS
-
-RAW_SUFFIXES: frozenset[str] = RAW_EXTS
 
 
 def walk(root: Path, suffixes: Iterable[str] | None = None) -> Iterator[Path]:

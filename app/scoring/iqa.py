@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Self
+
 import numpy as np
 import pyiqa
 import torch
@@ -15,7 +17,7 @@ class _IqaBase:
         self.device = torch.device(device)
         self.model = pyiqa.create_metric(self.metric_name, device=self.device, as_loss=False)
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:

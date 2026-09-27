@@ -62,9 +62,9 @@ def test_recover_backlit_lifts_shadows_when_triggered() -> None:
     out = tone_balance.recover_backlit(img, shadow_lift=0.5)
     subject_before = img[32, 32].mean()
     subject_after = out[32, 32].mean()
-    assert subject_after > subject_before + 5, (
-        f"shadow lift should brighten subject; before={subject_before} after={subject_after}"
-    )
+    assert (
+        subject_after > subject_before + 5
+    ), f"shadow lift should brighten subject; before={subject_before} after={subject_after}"
 
 
 def test_recover_backlit_protects_highlights() -> None:
@@ -72,9 +72,9 @@ def test_recover_backlit_protects_highlights() -> None:
     out = tone_balance.recover_backlit(img, shadow_lift=0.6, highlight_protect=0.5)
     bg_before = int(img[0, 0].mean())
     bg_after = int(out[0, 0].mean())
-    assert abs(bg_after - bg_before) <= 8, (
-        f"highlights should be protected; before={bg_before} after={bg_after}"
-    )
+    assert (
+        abs(bg_after - bg_before) <= 8
+    ), f"highlights should be protected; before={bg_before} after={bg_after}"
 
 
 def test_recover_backlit_noop_when_not_backlit() -> None:

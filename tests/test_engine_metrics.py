@@ -110,11 +110,23 @@ def test_measure_all_returns_full_keyset() -> None:
     img = _noisy(0.5, sigma=0.02)
     m = measure_all(img)
     expected = {
-        "mean_luma", "shadow_clip", "highlight_clip", "midtone_ratio", "midtone_deviation",
-        "dr_p95_p5", "local_dr_mean",
-        "rg_ratio", "bg_ratio", "avg_saturation", "oversat_ratio", "skin_hue_var",
-        "lap_var", "edge_density", "hf_energy",
-        "luma_noise", "chroma_noise",
+        "mean_luma",
+        "shadow_clip",
+        "highlight_clip",
+        "midtone_ratio",
+        "midtone_deviation",
+        "dr_p95_p5",
+        "local_dr_mean",
+        "rg_ratio",
+        "bg_ratio",
+        "avg_saturation",
+        "oversat_ratio",
+        "skin_hue_var",
+        "lap_var",
+        "edge_density",
+        "hf_energy",
+        "luma_noise",
+        "chroma_noise",
     }
     assert expected.issubset(m.keys())
 
@@ -124,5 +136,11 @@ def test_score_report_q_in_range() -> None:
     m = measure_all(img)
     r = score_report(m)
     assert 0.0 <= r.score_q <= 100.0
-    for s in (r.score_exposure, r.score_dynamic_range, r.score_color, r.score_sharpness, r.score_noise):
+    for s in (
+        r.score_exposure,
+        r.score_dynamic_range,
+        r.score_color,
+        r.score_sharpness,
+        r.score_noise,
+    ):
         assert 0.0 <= s <= 100.0

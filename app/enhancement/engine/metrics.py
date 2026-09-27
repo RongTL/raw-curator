@@ -20,24 +20,22 @@ from collections.abc import Sequence
 
 import numpy as np
 
-log = logging.getLogger(__name__)
+from app.arrays import Array
+from app.enhancement.colorspace import luma, rgb_to_ycbcr
 
-# Rec.709 luminance weights (spec §1.1)
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+log = logging.getLogger(__name__)
 
 # Spec thresholds for the midtone-deviation score (§1.3 general band).
 _MIDTONE_BAND_CENTER = 0.625  # mid of 0.50..0.75
 _MIDTONE_BAND_HALF = 0.125
 
 # Sharpness / noise patch sizing.
-_FLAT_PATCH = 16              # for noise σ over flat regions
+_FLAT_PATCH = 16  # for noise σ over flat regions
 _NOISE_FLAT_GRADIENT_MAX = 4.0  # 8-bit luma gradient ceiling for a "flat" patch
-_FFT_CENTER_FRAC = 0.25       # the band we treat as DC/low-frequency
+_FFT_CENTER_FRAC = 0.25  # the band we treat as DC/low-frequency
 
 
-def to_float01(img: np.ndarray) -> np.ndarray:
+def to_float01(img: Array) -> Array:
     """Normalize uint8 / uint16 / float to float32 [0, 1]."""
     if img.dtype == np.float32:
         return np.clip(img, 0.0, 1.0)
@@ -50,7 +48,7 @@ def to_float01(img: np.ndarray) -> np.ndarray:
     raise TypeError(f"unsupported dtype {img.dtype} for quality measurement")
 
 
-def linear_to_srgb_u8(rgb_f01: np.ndarray) -> np.ndarray:
+def linear_to_srgb_u8(rgb_f01: Array) -> Array:
     """Encode linear-light float to sRGB-gamma 8-bit (matches what a viewer shows)."""
     a = 0.055
     f = np.clip(rgb_f01, 0.0, 1.0)
@@ -59,16 +57,14 @@ def linear_to_srgb_u8(rgb_f01: np.ndarray) -> np.ndarray:
     return (out * 255.0 + 0.5).astype(np.uint8)
 
 
-def _luma_linear(rgb_f01: np.ndarray) -> np.ndarray:
-    return _LUMA_R * rgb_f01[..., 0] + _LUMA_G * rgb_f01[..., 1] + _LUMA_B * rgb_f01[..., 2]
-
-
-def _luma_u8(rgb_f01: np.ndarray) -> np.ndarray:
-    L = _luma_linear(rgb_f01)
+def _luma_u8(rgb_f01: Array) -> Array:
+    lum = luma(rgb_f01)
     # sRGB-encode the single-channel luma directly.
     a = 0.055
-    f = np.clip(L, 0.0, 1.0)
-    enc = np.where(f <= 0.0031308, 12.92 * f, (1.0 + a) * np.power(np.maximum(f, 1e-6), 1.0 / 2.4) - a)
+    f = np.clip(lum, 0.0, 1.0)
+    enc = np.where(
+        f <= 0.0031308, 12.92 * f, (1.0 + a) * np.power(np.maximum(f, 1e-6), 1.0 / 2.4) - a
+    )
     return (enc * 255.0 + 0.5).astype(np.uint8)
 
 
@@ -76,9 +72,10 @@ def _luma_u8(rgb_f01: np.ndarray) -> np.ndarray:
 # §1 Exposure
 # ---------------------------------------------------------------------------
 
-def exposure_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
-    L = _luma_u8(rgb_f01)
-    hist = np.bincount(L.ravel(), minlength=256).astype(np.float64)
+
+def exposure_metrics(rgb_f01: Array) -> dict[str, float]:
+    lum = _luma_u8(rgb_f01)
+    hist = np.bincount(lum.ravel(), minlength=256).astype(np.float64)
     total = float(hist.sum())
     if total <= 0:
         return {
@@ -91,12 +88,18 @@ def exposure_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
     shadow_clip = float(hist[:6].sum() / total)
     highlight_clip = float(hist[250:].sum() / total)
     midtone_ratio = float(hist[64:193].sum() / total)
-    if _MIDTONE_BAND_CENTER - _MIDTONE_BAND_HALF <= midtone_ratio <= _MIDTONE_BAND_CENTER + _MIDTONE_BAND_HALF:
+    if (
+        _MIDTONE_BAND_CENTER - _MIDTONE_BAND_HALF
+        <= midtone_ratio
+        <= _MIDTONE_BAND_CENTER + _MIDTONE_BAND_HALF
+    ):
         midtone_deviation = 0.0
     else:
-        midtone_deviation = float(min(1.0, abs(midtone_ratio - _MIDTONE_BAND_CENTER) / _MIDTONE_BAND_HALF))
+        midtone_deviation = float(
+            min(1.0, abs(midtone_ratio - _MIDTONE_BAND_CENTER) / _MIDTONE_BAND_HALF)
+        )
     return {
-        "mean_luma": float(L.mean()),
+        "mean_luma": float(lum.mean()),
         "shadow_clip": shadow_clip,
         "highlight_clip": highlight_clip,
         "midtone_ratio": midtone_ratio,
@@ -108,16 +111,17 @@ def exposure_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
 # §2 Dynamic Range
 # ---------------------------------------------------------------------------
 
-def dynamic_range_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
-    L = _luma_u8(rgb_f01).astype(np.float32)
-    p5, p95 = np.percentile(L, [5, 95])
+
+def dynamic_range_metrics(rgb_f01: Array) -> dict[str, float]:
+    lum = _luma_u8(rgb_f01).astype(np.float32)
+    p5, p95 = np.percentile(lum, [5, 95])
     dr = float(p95 - p5)
-    H, W = L.shape
-    bh = H // 16
-    bw = W // 16
+    height, width = lum.shape
+    bh = height // 16
+    bw = width // 16
     if bh == 0 or bw == 0:
         return {"dr_p95_p5": dr, "local_dr_mean": dr}
-    crop = L[: bh * 16, : bw * 16].reshape(bh, 16, bw, 16)
+    crop = lum[: bh * 16, : bw * 16].reshape(bh, 16, bw, 16)
     block_max = crop.max(axis=(1, 3))
     block_min = crop.min(axis=(1, 3))
     return {"dr_p95_p5": dr, "local_dr_mean": float((block_max - block_min).mean())}
@@ -127,17 +131,9 @@ def dynamic_range_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
 # §3 Color
 # ---------------------------------------------------------------------------
 
-def _rgb_to_ycbcr_linear(rgb_f01: np.ndarray) -> np.ndarray:
-    """BT.601 RGB->YCbCr on linear float; Cb/Cr centered at 0.5."""
-    R, G, B = rgb_f01[..., 0], rgb_f01[..., 1], rgb_f01[..., 2]
-    Y = 0.299 * R + 0.587 * G + 0.114 * B
-    Cb = -0.168736 * R - 0.331264 * G + 0.5 * B + 0.5
-    Cr = 0.5 * R - 0.418688 * G - 0.081312 * B + 0.5
-    return np.stack([Y, Cb, Cr], axis=-1)
-
 
 def color_metrics(
-    rgb_f01: np.ndarray,
+    rgb_f01: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
 ) -> dict[str, float | None]:
     rgb = rgb_f01.reshape(-1, 3)
@@ -154,17 +150,17 @@ def color_metrics(
 
     skin_hue_var: float | None = None
     if face_boxes:
-        H, W, _ = rgb_f01.shape
-        cb_chunks: list[np.ndarray] = []
-        cr_chunks: list[np.ndarray] = []
+        height, width, _ = rgb_f01.shape
+        cb_chunks: list[Array] = []
+        cr_chunks: list[Array] = []
         for x, y, w, h in face_boxes:
             x0 = max(0, int(x))
             y0 = max(0, int(y))
-            x1 = min(W, int(x + w))
-            y1 = min(H, int(y + h))
+            x1 = min(width, int(x + w))
+            y1 = min(height, int(y + h))
             if x1 <= x0 or y1 <= y0:
                 continue
-            ycbcr = _rgb_to_ycbcr_linear(rgb_f01[y0:y1, x0:x1])
+            ycbcr = rgb_to_ycbcr(rgb_f01[y0:y1, x0:x1])
             cb_chunks.append(ycbcr[..., 1].ravel())
             cr_chunks.append(ycbcr[..., 2].ravel())
         if cb_chunks:
@@ -186,29 +182,31 @@ def color_metrics(
 # §4 Sharpness
 # ---------------------------------------------------------------------------
 
-def sharpness_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
-    L = _luma_u8(rgb_f01)
+
+def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
+    lum = _luma_u8(rgb_f01)
     try:
-        import cv2  # type: ignore
-        lap = cv2.Laplacian(L, ddepth=cv2.CV_32F, ksize=3)
+        import cv2
+
+        lap = cv2.Laplacian(lum, ddepth=cv2.CV_32F, ksize=3)
         lap_var = float(lap.var())
-        edges = cv2.Canny(L, 80, 160)
+        edges = cv2.Canny(lum, 80, 160)
         edge_density = float((edges > 0).mean())
     except ImportError:
         kernel = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float32)
-        lap = _conv2d_same(L.astype(np.float32), kernel)
+        lap = _conv2d_same(lum.astype(np.float32), kernel)
         lap_var = float(lap.var())
         edge_density = float((np.abs(lap) > 24).mean())
 
     # FFT high-frequency energy on a downscaled luma (24 MP FFT is wasteful).
-    H, W = L.shape
+    height, width = lum.shape
     max_edge = 1024
-    long = max(H, W)
+    long = max(height, width)
     if long > max_edge:
         step = int(np.ceil(long / max_edge))
-        small = L[::step, ::step]
+        small = lum[::step, ::step]
     else:
-        small = L
+        small = lum
     f = np.fft.fftshift(np.fft.fft2(small.astype(np.float32)))
     mag = np.abs(f)
     sh, sw = mag.shape
@@ -226,7 +224,7 @@ def sharpness_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
     }
 
 
-def _conv2d_same(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+def _conv2d_same(img: Array, kernel: Array) -> Array:
     kh, kw = kernel.shape
     pad_h, pad_w = kh // 2, kw // 2
     padded = np.pad(img, ((pad_h, pad_h), (pad_w, pad_w)), mode="reflect")
@@ -241,41 +239,47 @@ def _conv2d_same(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 # §5 Noise
 # ---------------------------------------------------------------------------
 
-def noise_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
-    L = _luma_u8(rgb_f01)
-    luma_noise = _flat_patch_std(L)
+
+def noise_metrics(rgb_f01: Array) -> dict[str, float]:
+    lum = _luma_u8(rgb_f01)
+    luma_noise = _flat_patch_std(lum)
 
     try:
-        import cv2  # type: ignore
+        import cv2
+
         lab = cv2.cvtColor(np.clip(rgb_f01, 0, 1).astype(np.float32), cv2.COLOR_RGB2LAB)
         a = lab[..., 1]
         b = lab[..., 2]
-        chroma = 0.5 * (_flat_patch_std(a, L) + _flat_patch_std(b, L))
+        chroma = 0.5 * (_flat_patch_std(a, lum) + _flat_patch_std(b, lum))
     except ImportError:
         chroma = 0.0
 
     return {"luma_noise": float(luma_noise), "chroma_noise": float(chroma)}
 
 
-def _flat_patch_std(image: np.ndarray, luma_for_flat: np.ndarray | None = None) -> float:
+def _flat_patch_std(image: Array, luma_for_flat: Array | None = None) -> float:
     """Estimate noise σ by averaging std over patches with near-zero gradient."""
     img = image.astype(np.float32)
-    L = (luma_for_flat if luma_for_flat is not None else image).astype(np.float32)
-    H, W = L.shape
-    bh = H // _FLAT_PATCH
-    bw = W // _FLAT_PATCH
+    lum = (luma_for_flat if luma_for_flat is not None else image).astype(np.float32)
+    height, width = lum.shape
+    bh = height // _FLAT_PATCH
+    bw = width // _FLAT_PATCH
     if bh == 0 or bw == 0:
         return 0.0
-    Lc = L[: bh * _FLAT_PATCH, : bw * _FLAT_PATCH].reshape(bh, _FLAT_PATCH, bw, _FLAT_PATCH)
-    gx = np.diff(Lc, axis=3)
-    gy = np.diff(Lc, axis=1)
+    lum_blocks = lum[: bh * _FLAT_PATCH, : bw * _FLAT_PATCH].reshape(
+        bh, _FLAT_PATCH, bw, _FLAT_PATCH
+    )
+    gx = np.diff(lum_blocks, axis=3)
+    gy = np.diff(lum_blocks, axis=1)
     grad_mag = np.sqrt(np.maximum(0.0, (gx**2).mean(axis=(1, 3)) + (gy**2).mean(axis=(1, 3))))
     flat_mask = grad_mag < _NOISE_FLAT_GRADIENT_MAX
     if not flat_mask.any():
         thr = np.percentile(grad_mag, 1)
         flat_mask = grad_mag <= thr
-    Ic = img[: bh * _FLAT_PATCH, : bw * _FLAT_PATCH].reshape(bh, _FLAT_PATCH, bw, _FLAT_PATCH)
-    patch_std = Ic.std(axis=(1, 3))
+    img_blocks = img[: bh * _FLAT_PATCH, : bw * _FLAT_PATCH].reshape(
+        bh, _FLAT_PATCH, bw, _FLAT_PATCH
+    )
+    patch_std = img_blocks.std(axis=(1, 3))
     return float(patch_std[flat_mask].mean()) if flat_mask.any() else 0.0
 
 
@@ -283,8 +287,9 @@ def _flat_patch_std(image: np.ndarray, luma_for_flat: np.ndarray | None = None) 
 # Unified entry point — returns the raw metric dict (no scoring yet).
 # ---------------------------------------------------------------------------
 
+
 def measure_all(
-    rgb: np.ndarray,
+    rgb: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
 ) -> dict[str, float | None]:
     rgb_f01 = to_float01(rgb)

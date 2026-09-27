@@ -76,9 +76,7 @@ async def test_start_while_running_raises_busy(tmp_path: Path, monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_cancel_mid_chain_stops_current_and_skips_next(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_cancel_mid_chain_stops_current_and_skips_next(tmp_path: Path, monkeypatch) -> None:
     runner = JobRunner(log_dir=tmp_path, command=PY)
     stages = fake_stages(
         ("slow", "import time; time.sleep(30)"),

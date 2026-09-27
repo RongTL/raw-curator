@@ -16,18 +16,13 @@ import logging
 
 import numpy as np
 
+from app.arrays import Array
+from app.enhancement.colorspace import luma
+
 log = logging.getLogger(__name__)
 
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
 
-
-def _luma(rgb: np.ndarray) -> np.ndarray:
-    return _LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2]
-
-
-def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
+def gamma_correct(rgb: Array, gain: float) -> Array:
     if abs(gain) < 1e-4:
         return rgb
     k = float(gain)
@@ -35,17 +30,17 @@ def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
     return np.power(f, 1.0 / (1.0 + k)).astype(np.float32)
 
 
-def shadow_lift(rgb: np.ndarray, amount: float = 0.35) -> np.ndarray:
+def shadow_lift(rgb: Array, amount: float = 0.35) -> Array:
     if amount <= 0.0:
         return rgb
-    L = _luma(rgb)
-    mask = np.exp(-((L - 0.18) ** 2) / (2.0 * 0.18 ** 2)).astype(np.float32)
+    lum = luma(rgb)
+    mask = np.exp(-((lum - 0.18) ** 2) / (2.0 * 0.18**2)).astype(np.float32)
     k = float(amount) * mask
     boosted = np.power(np.clip(rgb, 1e-6, 1.0), 1.0 / (1.0 + k[..., None]))
     return boosted.astype(np.float32)
 
 
-def highlight_recover(rgb: np.ndarray, amount: float = 0.5, knee: float = 0.75) -> np.ndarray:
+def highlight_recover(rgb: Array, amount: float = 0.5, knee: float = 0.75) -> Array:
     if amount <= 0.0:
         return rgb
     knee = float(np.clip(knee, 0.1, 0.99))

@@ -14,9 +14,7 @@ log = logging.getLogger(__name__)
 SOURCE_ROOTS: tuple[str, ...] = ("incoming", "library", "exported")
 
 
-def relative_subpath(
-    src: Path, photos: Path, roots: tuple[str, ...] = SOURCE_ROOTS
-) -> Path:
+def relative_subpath(src: Path, photos: Path, roots: tuple[str, ...] = SOURCE_ROOTS) -> Path:
     """Return ``src`` relative to whichever known root it lives under.
 
     The returned path includes the filename, e.g.::

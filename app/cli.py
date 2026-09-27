@@ -11,9 +11,17 @@ app = typer.Typer(help="AI RAW photo curation pipeline (ephemeral).")
 console = Console()
 
 
+@app.callback()
+def _setup() -> None:
+    """Runs before every sub-command: route log.* output to stderr."""
+    from app.logging_setup import configure_logging
+
+    configure_logging()
+
+
 @app.command()
 def ingest() -> None:
-    """Phase 2: walk photos/incoming -> DB rows + previews + thumbs."""
+    """Walk photos/incoming -> DB rows + previews + thumbs."""
     from app.ingest.ingest_job import run_ingest
 
     run_ingest()
@@ -21,7 +29,7 @@ def ingest() -> None:
 
 @app.command()
 def filter() -> None:  # noqa: A001 — typer command, shadows builtin only in this module
-    """Phase 3: cheap CPU filters (blur/phash/exposure)."""
+    """Cheap CPU filters (blur / pHash / exposure flags)."""
     from app.filters.filter_job import run_filters
 
     run_filters()
@@ -29,7 +37,7 @@ def filter() -> None:  # noqa: A001 — typer command, shadows builtin only in t
 
 @app.command()
 def score(stage: str = "all") -> None:
-    """Phase 4: GPU scoring. stage in {clip, iqa, faces, all}."""
+    """GPU scoring. stage in {clip, iqa, faces, all}."""
     from app.scoring.score_job import run_scoring
 
     run_scoring(stage=stage)
@@ -37,7 +45,7 @@ def score(stage: str = "all") -> None:
 
 @app.command()
 def cluster() -> None:
-    """Phase 5: burst + phash dedupe + CLIP HDBSCAN."""
+    """EXIF burst grouping + CLIP HDBSCAN; one recommended photo per cluster."""
     from app.clustering.cluster_job import run_clustering
 
     run_clustering()
@@ -45,7 +53,7 @@ def cluster() -> None:
 
 @app.command()
 def submit() -> None:
-    """Phase 7: apply staged decisions atomically."""
+    """Apply staged decisions (moves yes-RAWs into library/)."""
     from app.decision.decide_job import apply_decisions
 
     apply_decisions()
@@ -53,7 +61,7 @@ def submit() -> None:
 
 @app.command()
 def enhance() -> None:
-    """Phase 8: hybrid RAW -> AI -> 16-bit TIFF for the Yes+Low set."""
+    """RAW -> AI chain -> 16-bit TIFF for every decided photo."""
     from app.enhancement.enhance_job import run_enhancement
 
     run_enhancement()
@@ -71,11 +79,9 @@ def export_jpeg(
         None,
         help="Resize so the long edge equals this many pixels. 0 = native resolution.",
     ),
-    overwrite: bool = typer.Option(
-        False, help="Re-encode files whose JPEG already exists."
-    ),
+    overwrite: bool = typer.Option(False, help="Re-encode files whose JPEG already exists."),
 ) -> None:
-    """Phase 9 (optional): convert library RAWs and exported TIFFs to share-ready JPEGs."""
+    """Optional: convert library RAWs and exported TIFFs to share-ready JPEGs."""
     from app.export.jpeg_job import run_jpeg_export
 
     run_jpeg_export(source=source, quality=quality, long_edge=long_edge, overwrite=overwrite)
@@ -83,7 +89,7 @@ def export_jpeg(
 
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 8080) -> None:
-    """Phase 6: FastAPI + UI."""
+    """Control-center UI + review API (runs every stage from the browser)."""
     import uvicorn
 
     uvicorn.run("app.api.main:app", host=host, port=port)
@@ -91,15 +97,15 @@ def serve(host: str = "127.0.0.1", port: int = 8080) -> None:
 
 @app.command()
 def reset(force: bool = False) -> None:
-    """Phase 9: wipe session state (cache + working dirs + DB)."""
-    from scripts.end_session import end_session
+    """Wipe session state: DB, cache tiers, library/exported/jpeg. incoming/ is kept."""
+    from app.orchestrator.reset import end_session
 
     end_session(force=force)
 
 
 @app.command()
 def run(auto: bool = False) -> None:
-    """Phase 10: orchestrated full pipeline. Pass --auto to actually run."""
+    """Leg 1 in one shot: ingest -> filter -> score -> cluster. Pass --auto to run."""
     if not auto:
         console.print("[yellow]Use --auto to run the full pipeline.[/yellow]")
         raise typer.Exit(2)

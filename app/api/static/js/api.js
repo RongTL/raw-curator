@@ -23,7 +23,6 @@ export const api = {
   decide: (body) => post(`/api/decide/`, body),
   decideAll: (selected) => post(`/api/decide/all`, { selected }),
   pending: () => j(`/api/decide/pending`),
-  submit: () => post(`/api/submit/`),
   // pipeline
   pipelineStatus: () => j(`/api/pipeline/status`),
   runStage: (name) => post(`/api/pipeline/run/${name}`),

@@ -1,16 +1,13 @@
-"""Rank within a cluster: 0.6 * technical + 0.4 * aesthetic."""
+"""Rank within a cluster by the shared technical/aesthetic blend (app.scoring.combined)."""
 
 from __future__ import annotations
 
 from app.models import Photo
+from app.scoring.combined import combined_score
 
 
 def score(p: Photo) -> float:
-    tech = p.technical_score or 0.0
-    aesthetic = p.aesthetic_score or 0.0
-    # Aesthetic scores from v2.5 are roughly in [1,10] — normalize quickly.
-    aesthetic_n = max(0.0, min(1.0, (aesthetic - 1.0) / 9.0))
-    return 0.6 * tech + 0.4 * aesthetic_n
+    return combined_score(p.technical_score, p.aesthetic_score)
 
 
 def rank(photos: list[Photo]) -> list[Photo]:

@@ -3,30 +3,33 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.models import Photo
 
 
 def burst_groups(photos: Iterable[Photo], window_seconds: int = 2) -> list[list[Photo]]:
-    with_ts = [p for p in photos if p.captured_at is not None and p.camera_body]
-    with_ts.sort(key=lambda p: (p.camera_body, p.captured_at))
-    if not with_ts:
+    stamped: list[tuple[str, datetime, Photo]] = [
+        (p.camera_body, p.captured_at, p)
+        for p in photos
+        if p.captured_at is not None and p.camera_body
+    ]
+    if not stamped:
         return []
-    out: list[list[Photo]] = []
-    current: list[Photo] = [with_ts[0]]
+    stamped.sort(key=lambda t: (t[0], t[1]))
     window = timedelta(seconds=window_seconds)
-    for p in with_ts[1:]:
-        last = current[-1]
-        if (
-            p.camera_body == last.camera_body
-            and (p.captured_at - last.captured_at) <= window
-        ):
+
+    out: list[list[Photo]] = []
+    current: list[Photo] = [stamped[0][2]]
+    last_body, last_ts = stamped[0][0], stamped[0][1]
+    for body, ts, p in stamped[1:]:
+        if body == last_body and (ts - last_ts) <= window:
             current.append(p)
         else:
             if len(current) > 1:
                 out.append(current)
             current = [p]
+        last_body, last_ts = body, ts
     if len(current) > 1:
         out.append(current)
     return out

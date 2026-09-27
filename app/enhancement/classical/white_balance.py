@@ -11,13 +11,15 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.arrays import Array
+
 
 def gray_world(
-    rgb: np.ndarray,
+    rgb: Array,
     target_rg: float = 1.0,
     target_bg: float = 1.0,
     strength: float = 1.0,
-) -> np.ndarray:
+) -> Array:
     if strength <= 0.0:
         return rgb
     flat = rgb.reshape(-1, 3)

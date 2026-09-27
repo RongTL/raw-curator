@@ -23,7 +23,12 @@ def make_burst(
     paths: list[Path] = []
     for i in range(n):
         arr = np.full((size[1], size[0], 3), color, dtype=np.uint8)
-        arr += (np.random.randint(-jitter, jitter, arr.shape)).astype(np.int16).clip(-jitter, jitter).astype(np.uint8)
+        arr += (
+            (np.random.randint(-jitter, jitter, arr.shape))
+            .astype(np.int16)
+            .clip(-jitter, jitter)
+            .astype(np.uint8)
+        )
         out = out_dir / f"burst_{i:03d}.jpg"
         Image.fromarray(arr).save(out, format="JPEG", quality=90)
         paths.append(out)

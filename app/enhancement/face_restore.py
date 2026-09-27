@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 
 import numpy as np
+
+from app.arrays import Array
+from app.config import settings
+from app.enhancement.weights import codeformer_weights
 
 log = logging.getLogger(__name__)
 
@@ -20,23 +22,43 @@ log = logging.getLogger(__name__)
 # internally and the result is upsampled back to native by
 # upsample_final(), so capping only costs a Lanczos round-trip on the
 # non-face areas, which the final resample to native re-flattens anyway.
-_MAX_LONG_EDGE = int(os.environ.get("RAWCURATOR_CF_MAX_LONG_EDGE", "2048"))
+# The cap is settings.codeformer_max_long_edge.
 
 
-def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarray:
-    weights = Path("/data/models/CodeFormer/weights/CodeFormer/codeformer.pth")
+def _cap_long_edge(rgb: Array) -> Array:
+    """Area-downsample so the long edge is <= settings.codeformer_max_long_edge.
+
+    Returns the input object itself when no resize is needed.
+    """
+    import cv2
+
+    max_edge = settings.codeformer_max_long_edge
+    h0, w0 = rgb.shape[:2]
+    long_edge = max(h0, w0)
+    if long_edge <= max_edge:
+        return rgb
+    s = max_edge / long_edge
+    return cv2.resize(
+        rgb,
+        (int(round(w0 * s)), int(round(h0 * s))),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
+def codeformer_restore(rgb: Array, weight: float = 0.7) -> Array:
+    weights = codeformer_weights()
     if not weights.exists():
         log.info("codeformer weights missing at %s — skipping face restore", weights)
         return rgb
     try:
-        import cv2  # type: ignore
-        import torch  # type: ignore
-        from codeformer.basicsr.archs.codeformer_arch import CodeFormer  # type: ignore
-        from codeformer.basicsr.utils import img2tensor, tensor2img  # type: ignore
-        from codeformer.facelib.utils.face_restoration_helper import (  # type: ignore
+        import cv2
+        import torch
+        from codeformer.basicsr.archs.codeformer_arch import CodeFormer
+        from codeformer.basicsr.utils import img2tensor, tensor2img
+        from codeformer.facelib.utils.face_restoration_helper import (
             FaceRestoreHelper,
         )
-        from torchvision.transforms.functional import normalize  # type: ignore
+        from torchvision.transforms.functional import normalize
     except Exception as exc:  # noqa: BLE001
         log.warning("codeformer imports failed: %s — skipping face restore", exc)
         return rgb
@@ -44,16 +66,7 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     h0, w0 = rgb.shape[:2]
-    long_edge = max(h0, w0)
-    if long_edge > _MAX_LONG_EDGE:
-        s = _MAX_LONG_EDGE / long_edge
-        rgb_in = cv2.resize(
-            rgb,
-            (int(round(w0 * s)), int(round(h0 * s))),
-            interpolation=cv2.INTER_AREA,
-        )
-    else:
-        rgb_in = rgb
+    rgb_in = _cap_long_edge(rgb)
 
     net = CodeFormer(
         dim_embd=512,
@@ -105,7 +118,5 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
 
     restored_rgb = cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
     if restored_rgb.shape[:2] != (h0, w0):
-        restored_rgb = cv2.resize(
-            restored_rgb, (w0, h0), interpolation=cv2.INTER_LANCZOS4
-        )
+        restored_rgb = cv2.resize(restored_rgb, (w0, h0), interpolation=cv2.INTER_LANCZOS4)
     return restored_rgb

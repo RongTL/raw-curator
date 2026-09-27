@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.arrays import Array
+
 _BLOWN_THRESH = 0.05
 _CRUSHED_THRESH = 0.05
 
 
-def exposure_flag(rgb: np.ndarray) -> tuple[str, float]:
+def exposure_flag(rgb: Array) -> tuple[str, float]:
     gray = rgb.mean(axis=-1) if rgb.ndim == 3 else rgb
     hist, _ = np.histogram(gray, bins=256, range=(0, 256))
     total = float(hist.sum() or 1)

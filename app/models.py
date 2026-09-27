@@ -69,9 +69,7 @@ class Photo(Base):
     )
     is_recommended: Mapped[bool] = mapped_column(Integer, default=0)
 
-    faces: Mapped[list[Face]] = relationship(
-        back_populates="photo", cascade="all, delete-orphan"
-    )
+    faces: Mapped[list[Face]] = relationship(back_populates="photo", cascade="all, delete-orphan")
     cluster: Mapped[Cluster | None] = relationship(back_populates="photos")
     decision: Mapped[Decision | None] = relationship(
         back_populates="photo", uselist=False, cascade="all, delete-orphan"

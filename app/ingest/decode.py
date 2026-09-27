@@ -16,24 +16,12 @@ import rawpy
 import tifffile
 from PIL import Image, ImageOps
 
+from app.arrays import Array
+
 # Extension sets live in the constants-only `app.ingest.extensions` module so
-# lightweight callers can use them without this module's heavy deps.
-# Re-exported here for existing importers (walker, jpeg_writer, ...).
-from app.ingest.extensions import (
-    HEIC_EXTS as HEIC_EXTS,
-)
-from app.ingest.extensions import (
-    JPEG_EXTS as JPEG_EXTS,
-)
-from app.ingest.extensions import (
-    PNG_EXTS as PNG_EXTS,
-)
-from app.ingest.extensions import (
-    RAW_EXTS as RAW_EXTS,
-)
-from app.ingest.extensions import (
-    TIFF_EXTS as TIFF_EXTS,
-)
+# lightweight callers (progress polling, export) can use them without this
+# module's heavy decode deps.
+from app.ingest.extensions import HEIC_EXTS, JPEG_EXTS, PNG_EXTS, RAW_EXTS, TIFF_EXTS
 
 log = logging.getLogger(__name__)
 
@@ -131,19 +119,35 @@ def all_supported_exts() -> frozenset[str]:
     return frozenset(out)
 
 
-def _develop_raw(path: Path) -> np.ndarray:
+def develop_raw_rgb8(path: Path) -> Array:
+    """Full-size 8-bit sRGB development via LibRaw (camera WB, auto-bright)."""
     with rawpy.imread(str(path)) as raw:
-        return raw.postprocess(
-            output_bps=8,
-            half_size=False,
-            no_auto_bright=False,
-            use_camera_wb=True,
-            gamma=(2.222, 4.5),
-            output_color=rawpy.ColorSpace.sRGB,
+        return np.asarray(
+            raw.postprocess(
+                output_bps=8,
+                half_size=False,
+                no_auto_bright=False,
+                use_camera_wb=True,
+                gamma=(2.222, 4.5),
+                output_color=rawpy.ColorSpace.sRGB,
+            )
         )
 
 
-def _load_tiff(path: Path) -> np.ndarray:
+def extract_embedded_thumb(path: Path) -> bytes | None:
+    """The camera's embedded JPEG preview, or None if absent / not JPEG."""
+    try:
+        with rawpy.imread(str(path)) as raw:
+            thumb = raw.extract_thumb()
+    except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
+        return None
+    if thumb.format != rawpy.ThumbFormat.JPEG:
+        return None
+    return bytes(thumb.data)
+
+
+def load_tiff_rgb8(path: Path) -> Array:
+    """Any TIFF -> HxWx3 uint8: grayscale is broadcast, alpha dropped, 16-bit >> 8."""
     arr = tifffile.imread(str(path))
     if arr.ndim == 2:
         arr = np.stack([arr] * 3, axis=-1)
@@ -156,33 +160,31 @@ def _load_tiff(path: Path) -> np.ndarray:
     return arr
 
 
-def _load_via_pillow(path: Path) -> np.ndarray:
-    img = Image.open(path)
-    img = ImageOps.exif_transpose(img)
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    return np.asarray(img)
+def load_pillow_rgb8(path: Path) -> Array:
+    """JPEG / HEIC / PNG -> HxWx3 uint8, EXIF orientation applied."""
+    with Image.open(path) as opened:
+        img: Image.Image = ImageOps.exif_transpose(opened) or opened
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        return np.asarray(img)
 
 
-def decode_preview(path: Path) -> np.ndarray:
+def decode_preview(path: Path) -> Array:
     """Return an 8-bit RGB ndarray, EXIF-rotated, ready for thumb/preview pipelines."""
     kind = classify_kind(path)
     if kind is None:
         raise ValueError(f"unsupported file type: {path.suffix} ({path})")
     if kind == FileKind.RAW:
-        return _develop_raw(path)
+        return develop_raw_rgb8(path)
     if kind == FileKind.TIFF:
-        return _load_tiff(path)
+        return load_tiff_rgb8(path)
     # JPEG, HEIC, PNG — Pillow handles all three with EXIF orientation.
-    return _load_via_pillow(path)
+    return load_pillow_rgb8(path)
 
 
 def extract_thumb_bytes(path: Path) -> bytes | None:
     """For RAWs, hand back the embedded JPEG thumb (cheap). Else return None
     so the caller falls back to the decoded preview array."""
-    kind = classify_kind(path)
-    if kind == FileKind.RAW:
-        from app.preview.rawpy_dev import extract_embedded_thumb
-
+    if classify_kind(path) == FileKind.RAW:
         return extract_embedded_thumb(path)
     return None

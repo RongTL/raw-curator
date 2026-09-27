@@ -37,11 +37,8 @@ class Settings(BaseSettings):
     jpeg_quality_thumb: int = 88
 
     clip_batch: int = 8
-    iqa_batch: int = 1
 
     burst_seconds: int = 2
-    phash_hamming_threshold: int = 8
-    clip_cosine_threshold: float = 0.92
 
     enhance_ai_scale: float = 1.0  # AI sees full native (24MP -> ~6kx4k). Lower to 0.85/0.7 if OOM.
     enhance_target_res: str = "200%"  # Keep Real-ESRGAN's x2 output (12kx8k); preserves AI detail.
@@ -49,11 +46,16 @@ class Settings(BaseSettings):
     enhance_denoise_strength: float = 0.75  # 1.0 = full SCUNet; <1 keeps natural micro-texture
     enhance_face_restore: bool = True
     enhance_codeformer_w: float = 0.85  # higher = more faithful skin, less waxy/airbrushed
-    enhance_realesrgan_fidelity: float = 0.7  # 1.0 = full Real-ESRGAN; ~0.7 softens AI artifacts while keeping most detail recovery
+    enhance_realesrgan_fidelity: float = (
+        0.7  # 1.0 = full Real-ESRGAN; ~0.7 softens AI artifacts while keeping most detail recovery
+    )
     enhance_backlit_recovery: bool = True
     enhance_backlit_shadow_lift: float = 0.4  # 0 disables; ~0.4 natural; >0.7 looks HDR
     enhance_backlit_highlight_protect: float = 0.15
-    enhance_out_format: str = "tiff16"
+    # VRAM-fit knobs for the AI steps (6 GB RTX 2060 defaults).
+    scunet_tile: int = 512  # SCUNet has no native tiling; output tile edge in px
+    scunet_tile_pad: int = 32  # reflective context around each tile
+    codeformer_max_long_edge: int = 2048  # RetinaFace runs on the full frame; cap it
 
     jpeg_quality: int = 92
     jpeg_long_edge: int = 0  # 0 = native resolution; e.g. 4000 to cap for sharing
@@ -62,6 +64,8 @@ class Settings(BaseSettings):
 
     # UI warns when the photos volume has less free space than this (GB)
     monitor_disk_warn_free_gb: float = 50.0
+
+    log_level: str = "INFO"  # root logger level for every raw-curator process
 
     @property
     def db_path(self) -> Path:

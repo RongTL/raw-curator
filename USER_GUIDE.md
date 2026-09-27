@@ -80,9 +80,7 @@ confirm).
 After this:
 - `cache/session.db` is freshly migrated (empty schema, including the
   `quality_reports` table the Auto Enhancement Engine writes into).
-- `photos/{library,archive,quarantine,exported,jpeg}/` are empty
-  (`archive/` and `quarantine/` exist for historical reasons but are
-  no longer populated under the binary routing).
+- `photos/{library,exported,jpeg}/` are empty.
 - `photos/incoming/` is **left alone** — that is your input.
 - `models/` and `xmp/` are **left alone**.
 
@@ -406,8 +404,6 @@ After submit and enhance, the working tree looks like:
 photos/
   incoming/      <- empty after enhance (yes RAWs moved to library/ at submit; no RAWs deleted by enhance)
   library/       <- yes RAWs (kept untouched)
-  archive/       <- (legacy bucket; not populated by the binary routing)
-  quarantine/    <- (legacy bucket; not populated by the binary routing)
   exported/      <- enhanced 16-bit TIFFs (one per decided photo)
   jpeg/          <- share-ready JPEGs (if you ran `make export-jpeg`)
 ```
@@ -436,8 +432,7 @@ Both do the same wipe. `make reset` is non-interactive — it deletes
 immediately:
 - Deletes `cache/session.db` (and `-wal`/`-shm`).
 - Empties `cache/previews/` and `cache/thumbs/`.
-- Empties `photos/library/`, `photos/archive/`, `photos/quarantine/`,
-  `photos/exported/`, `photos/jpeg/`.
+- Empties `photos/library/`, `photos/exported/`, `photos/jpeg/`.
 - Runs `alembic upgrade head` to give you a fresh empty schema
   (including `quality_reports`).
 - Leaves `photos/incoming/`, `models/`, and `xmp/` alone.

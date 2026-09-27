@@ -14,7 +14,6 @@ Side effects on import:
 from __future__ import annotations
 
 import contextlib
-import os
 import sys
 import types
 from pathlib import Path
@@ -32,7 +31,7 @@ def _install_torchvision_compat_shim() -> None:
     if name in sys.modules:
         return
     try:
-        import torchvision.transforms.functional as F  # type: ignore
+        import torchvision.transforms.functional as F
     except Exception:
         return
     shim = types.ModuleType(name)
@@ -54,12 +53,13 @@ def _install_torchvision_compat_shim() -> None:
 
 
 def _link_codeformer_aux_weights() -> None:
-    models_root = Path(os.environ.get("RAWCURATOR_MODELS", "/data/models"))
-    source_dir = models_root / "CodeFormer" / "weights" / "facelib"
+    from app.enhancement.weights import codeformer_facelib_dir
+
+    source_dir = codeformer_facelib_dir()
     if not source_dir.is_dir():
         return
     try:
-        import codeformer  # type: ignore
+        import codeformer
     except Exception:
         return
     target_dir = Path(codeformer.__file__).parent / "weights" / "facelib"

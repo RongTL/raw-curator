@@ -11,6 +11,7 @@ from rich.progress import Progress
 
 from app.config import settings
 from app.export.jpeg_writer import convert_image_to_jpeg, is_convertible
+from app.ingest.extensions import TIFF_EXTS
 from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
@@ -43,21 +44,20 @@ def _list_candidates(source: str) -> list[Path]:
     """Return source files to convert. `source` in {'library', 'exported', 'all'}.
 
     Library can contain any supported image kind (RAW, JPEG, TIFF, HEIC, PNG).
-    Exported contains the enhanced TIFFs from `make enhance`.
+    Exported holds only the enhanced TIFFs from `make enhance`; anything else
+    there is not ours and is ignored.
     """
     photos = settings.photos
     items: list[Path] = []
     if source in {"library", "all"}:
         lib = photos / "library"
         if lib.is_dir():
-            items.extend(
-                p for p in sorted(lib.rglob("*")) if p.is_file() and is_convertible(p)
-            )
+            items.extend(p for p in sorted(lib.rglob("*")) if p.is_file() and is_convertible(p))
     if source in {"exported", "all"}:
         exp = photos / "exported"
         if exp.is_dir():
             items.extend(
-                p for p in sorted(exp.rglob("*")) if p.is_file() and is_convertible(p)
+                p for p in sorted(exp.rglob("*")) if p.is_file() and p.suffix.lower() in TIFF_EXTS
             )
     return items
 

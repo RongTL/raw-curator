@@ -11,8 +11,12 @@ from app.models import Photo
 
 def _photo(idx: int, body: str, ts: datetime, tech: float = 0.5, aesthetic: float = 5.0) -> Photo:
     return Photo(
-        hash=f"hash{idx:04d}", source_path=f"/dev/null/{idx}.cr3", camera_body=body,
-        captured_at=ts, technical_score=tech, aesthetic_score=aesthetic,
+        hash=f"hash{idx:04d}",
+        source_path=f"/dev/null/{idx}.cr3",
+        camera_body=body,
+        captured_at=ts,
+        technical_score=tech,
+        aesthetic_score=aesthetic,
     )
 
 

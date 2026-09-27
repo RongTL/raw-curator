@@ -21,7 +21,7 @@ class WMSA(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.head_dim = head_dim
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.n_heads = input_dim // head_dim
         self.window_size = window_size
         self.type = type
@@ -54,9 +54,7 @@ class WMSA(nn.Module):
         attn_mask[-1, :, s:, :, :s, :] = True
         attn_mask[:, -1, :, :s, :, s:] = True
         attn_mask[:, -1, :, s:, :, :s] = True
-        attn_mask = rearrange(
-            attn_mask, "w1 w2 p1 p2 p3 p4 -> 1 1 (w1 w2) (p1 p2) (p3 p4)"
-        )
+        attn_mask = rearrange(attn_mask, "w1 w2 p1 p2 p3 p4 -> 1 1 (w1 w2) (p1 p2) (p3 p4)")
         return attn_mask
 
     def forward(self, x):
@@ -82,9 +80,9 @@ class WMSA(nn.Module):
             p2=self.window_size,
         )
         qkv = self.embedding_layer(x)
-        q, k, v = rearrange(
-            qkv, "b nw np (threeh c) -> threeh b nw np c", c=self.head_dim
-        ).chunk(3, dim=0)
+        q, k, v = rearrange(qkv, "b nw np (threeh c) -> threeh b nw np c", c=self.head_dim).chunk(
+            3, dim=0
+        )
         sim = torch.einsum("hbwpc,hbwqc->hbwpq", q, k) * self.scale
         sim = sim + rearrange(self.relative_embedding(), "h p q -> h 1 1 p q")
         if self.type != "W":
@@ -114,23 +112,22 @@ class WMSA(nn.Module):
 
     def relative_embedding(self):
         cord = torch.tensor(
-            np.array(
-                [
-                    [i, j]
-                    for i in range(self.window_size)
-                    for j in range(self.window_size)
-                ]
-            )
+            np.array([[i, j] for i in range(self.window_size) for j in range(self.window_size)])
         )
         relation = cord[:, None, :] - cord[None, :, :] + self.window_size - 1
-        return self.relative_position_params[
-            :, relation[:, :, 0].long(), relation[:, :, 1].long()
-        ]
+        return self.relative_position_params[:, relation[:, :, 0].long(), relation[:, :, 1].long()]
 
 
 class Block(nn.Module):
     def __init__(
-        self, input_dim, output_dim, head_dim, window_size, drop_path, type="W", input_resolution=None
+        self,
+        input_dim,
+        output_dim,
+        head_dim,
+        window_size,
+        drop_path,
+        type="W",
+        input_resolution=None,
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -206,9 +203,7 @@ class ConvTransBlock(nn.Module):
         )
 
     def forward(self, x):
-        conv_x, trans_x = torch.split(
-            self.conv1_1(x), (self.conv_dim, self.trans_dim), dim=1
-        )
+        conv_x, trans_x = torch.split(self.conv1_1(x), (self.conv_dim, self.trans_dim), dim=1)
         conv_x = self.conv_block(conv_x) + conv_x
         trans_x = Rearrange("b c h w -> b h w c")(trans_x)
         trans_x = self.trans_block(trans_x)

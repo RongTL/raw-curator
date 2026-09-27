@@ -19,8 +19,6 @@ xmp/*
 !xmp/.gitkeep
 photos/incoming/*
 photos/library/*
-photos/archive/*
-photos/quarantine/*
 photos/exported/*
 photos/jpeg/*
 !photos/*/.gitkeep
@@ -31,3 +29,4 @@ tests/data/
 .DS_Store
 
 .superpowers/
+.Containerfile.warm
