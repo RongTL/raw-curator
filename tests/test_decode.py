@@ -145,3 +145,28 @@ def test_jpeg_exif_orientation_is_applied(tmp_path: Path) -> None:
     img.save(src, format="JPEG", exif=exif.tobytes())
     out = decode.decode_preview(src)
     assert out.shape == (40, 20, 3)
+
+
+def test_load_tiff_rgb8_handles_uint16(tmp_path: Path) -> None:
+    arr16 = np.full((10, 10, 3), 32768, dtype=np.uint16)
+    tiff = tmp_path / "in.tif"
+    tifffile.imwrite(tiff, arr16, photometric="rgb")
+    out = decode.load_tiff_rgb8(tiff)
+    assert out.dtype == np.uint8
+    assert out.shape == (10, 10, 3)
+    assert out[0, 0, 0] == 32768 >> 8
+
+
+def test_load_tiff_rgb8_drops_alpha(tmp_path: Path) -> None:
+    arr = np.zeros((4, 4, 4), dtype=np.uint8)
+    arr[..., 3] = 255
+    tiff = tmp_path / "rgba.tif"
+    tifffile.imwrite(tiff, arr)
+    assert decode.load_tiff_rgb8(tiff).shape == (4, 4, 3)
+
+
+def test_load_tiff_rgb8_promotes_grayscale(tmp_path: Path) -> None:
+    arr = np.full((6, 6), 128, dtype=np.uint8)
+    tiff = tmp_path / "gray.tif"
+    tifffile.imwrite(tiff, arr)
+    assert decode.load_tiff_rgb8(tiff).shape == (6, 6, 3)
