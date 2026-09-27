@@ -77,6 +77,34 @@ def test_persist_plan_stores_steps_as_json(tmp_db: Session) -> None:
     assert all({"name", "params", "reason"} <= set(s) for s in steps)
 
 
+def test_persist_report_plan_verdict_share_one_non_autoflush_session(tmp_db: Session) -> None:
+    """Regression: report/plan/verdict persist in one autoflush=False session (prod semantics).
+
+    ``session_scope`` uses ``autoflush=False``; a freshly added quality_reports row must be
+    flushed by ``persist_report`` so the later ``persist_plan``/``persist_verdict`` gets see it.
+    """
+    from app.enhancement.engine.decision import plan_from_report
+    from app.enhancement.enhance_job import persist_plan, persist_verdict
+    from app.enhancement.verify import Verdict
+
+    tmp_db.add(Photo(hash="h3", source_path="/x/c.cr3"))
+    tmp_db.commit()
+
+    sess = Session(bind=tmp_db.get_bind(), autoflush=False)
+    try:
+        report = _report()
+        persist_report(sess, "h3", report)
+        persist_plan(sess, "h3", plan_from_report(report))
+        persist_verdict(sess, "h3", Verdict(False, (), 90.0, 91.0))
+        sess.commit()
+        row = sess.get(PhotoQualityReport, "h3")
+        assert row is not None
+        assert row.plan_json is not None
+        assert row.verify_json is not None
+    finally:
+        sess.close()
+
+
 def test_load_linear_float_reads_16bit_rgb_tiff(tmp_path: Path) -> None:
     import tifffile
 

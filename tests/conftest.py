@@ -18,7 +18,7 @@ def tmp_db(tmp_path: Path) -> Iterator[Session]:
     db_url = f"sqlite:///{tmp_path / 'test.db'}"
     engine = make_engine(db_url)
     Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, future=True)
+    session_factory = sessionmaker(bind=engine, autoflush=False, future=True)
     sess = session_factory()
     try:
         yield sess

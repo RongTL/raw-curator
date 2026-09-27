@@ -95,6 +95,9 @@ def persist_report(sess: Session, photo_hash: str, report: QualityReport) -> Non
         sess.add(row)
     for f in fields(report):
         setattr(row, f.name, getattr(report, f.name))
+    # session_scope() sessions are autoflush=False; flush so persist_plan/persist_verdict's
+    # sess.get(...) in the same transaction sees this row instead of raising "run report first".
+    sess.flush()
 
 
 def persist_plan(sess: Session, photo_hash: str, plan: EnhancementPlan) -> None:
