@@ -1,6 +1,6 @@
 # Enhancement engine correctness pass — design
 
-Status: draft for review · Branch: `feat/enhance-correctness` · Scope: "Project A" (steps 1–3 of the roadmap agreed on 2026-09-27). The content-aware redesign (scene analysis, policy layer, masks) is Project B and is out of scope here except where noted as an interim guard.
+Status: **approved 2026-09-27** (D1–D4 as proposed) · Branch: `feat/enhance-correctness` · Scope: "Project A" (steps 1–3 of the roadmap agreed on 2026-09-27). The content-aware redesign (scene analysis, policy layer, masks) is Project B and is out of scope here except where noted as an interim guard.
 
 ## 1. Goal
 
@@ -34,12 +34,12 @@ Measured on 2026-09-27 with the current code; artefacts under `tests/data/_revie
 | # | Decision | Status |
 |---|---|---|
 | D1 | Working space is linear Rec.2020, float32 in [0,1], from darktable to the final write. | **Made** |
-| D1a | Master TIFF is written as 16-bit linear Rec.2020 with the ICC profile darktable produced embedded, plus EXIF/XMP copied from the RAW. Share JPEGs are converted to sRGB with a real colour transform. | Proposed |
-| D2 | darktable owns lens/CA correction, highlight reconstruction, ISO-profiled denoise and the single tone mapper via a checked-in baseline applied when no user XMP exists. SCUNet becomes a residual-noise step. | Proposed, gated on a spike (§5.2) |
-| D3 | Real-ESRGAN runs only when it is needed for the output: target resolution above native, or source long edge below 3000 px. Off by default at `native`. | Proposed |
-| D4 | Default look is "as shot, cleaned up": fix measurable defects, never impose contrast or saturation the photographer did not shoot. | Proposed |
+| D1a | Master TIFF is written as 16-bit linear Rec.2020 with the ICC profile darktable produced embedded, plus EXIF/XMP copied from the RAW. Share JPEGs are converted to sRGB with a real colour transform. | **Made** |
+| D2 | darktable owns lens/CA correction, highlight reconstruction, ISO-profiled denoise and the single tone mapper via a checked-in baseline applied when no user XMP exists. SCUNet becomes a residual-noise step. | **Made**, mechanism chosen by the spike (§5.2) |
+| D3 | Real-ESRGAN runs only when it is needed for the output: target resolution above native, or source long edge below 3000 px. Off by default at `native`. | **Made** |
+| D4 | Default look is "as shot, cleaned up": fix measurable defects, never impose contrast or saturation the photographer did not shoot. | **Made** |
 
-D1a, D2, D3, D4 need the owner's yes during spec review.
+All four were approved by the owner on 2026-09-27.
 
 ## 4. Architecture after this pass
 
