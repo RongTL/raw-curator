@@ -15,7 +15,8 @@ See `README.md` for the user-facing overview and `USER_GUIDE.md` for the end-to-
 Everything is invoked through `make` (which delegates to `podman-compose` → the in-container `raw-curator` Typer CLI). Run from the repo root:
 
 ```bash
-make image            # build raw-curator:latest (~27 GB, 10–15 min first time)
+make image            # build raw-curator:latest from scratch (~12 GB, downloads ~5 GB of wheels)
+make image-warm       # rebuild reusing packages from the current image (minutes; use after code/dev-dep edits)
 make download-models  # fetch ~17 GB of weights into models/
 make reset            # wipe DB + cache + working photo dirs; runs alembic upgrade head
 

@@ -143,7 +143,8 @@ make reset
 
 | Target            | What it does                                                    |
 |-------------------|-----------------------------------------------------------------|
-| `image`           | `podman build -t raw-curator:latest -f Containerfile .`          |
+| `image`           | `podman build -t raw-curator:latest -f Containerfile .` (from scratch; downloads ~5 GB of wheels) |
+| `image-warm`      | Same build, but seeds site-packages from the current `raw-curator:latest` so only changed/added packages are fetched. Minutes instead of an hour on a slow link. |
 | `download-models` | Fetches CLIP, SigLIP, Real-ESRGAN, SCUNet, CodeFormer, InsightFace into `models/` |
 | `reset`           | `raw-curator reset --force`: drops DB, empties `cache/{previews,thumbs}/` and `photos/{library,exported,jpeg}/`, runs `alembic upgrade head` |
 | `ingest`          | Walk `photos/incoming/` → DB rows + previews + thumbs           |

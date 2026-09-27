@@ -5,12 +5,13 @@ RUN := $(COMPOSE) run --rm app raw-curator
 DEV := $(COMPOSE) run --rm -v ./app:/app/app:z -v ./tests:/app/tests:z \
        -v ./pyproject.toml:/app/pyproject.toml:z app
 
-.PHONY: image reset run ingest filter score cluster submit enhance export-jpeg \
+.PHONY: image image-warm reset run ingest filter score cluster submit enhance export-jpeg \
         serve shell test lint format typecheck download-models clean help
 
 help:
 	@echo "Targets:"
-	@echo "  image           Build raw-curator:latest"
+	@echo "  image           Build raw-curator:latest from scratch (downloads ~5 GB of wheels)"
+	@echo "  image-warm      Rebuild reusing the packages already in raw-curator:latest (minutes, no big downloads)"
 	@echo "  reset           Wipe DB + cache + library/exported/jpeg; reinit DB (incoming/ untouched)"
 	@echo "  download-models Fetch HF + torch weights into models/"
 	@echo "  ingest          Walk photos/incoming -> DB + previews"
@@ -30,6 +31,14 @@ help:
 
 image:
 	podman build -t raw-curator:latest -f Containerfile .
+
+# Same Containerfile, plus two COPY --from lines that seed site-packages from
+# the current image so `poetry install` only fetches what the lock changed.
+# Use after editing code/tests/dev deps; use `make image` after a torch/CUDA bump.
+image-warm:
+	sed '/^COPY pyproject.toml poetry.lock .\/$$/a COPY --from=localhost/raw-curator:latest /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages\nCOPY --from=localhost/raw-curator:latest /usr/local/bin /usr/local/bin' Containerfile > .Containerfile.warm
+	podman build -t raw-curator:latest -f .Containerfile.warm .
+	rm -f .Containerfile.warm
 
 reset:
 	$(RUN) reset --force
