@@ -11,7 +11,7 @@ DEV := $(COMPOSE) run --rm -v ./app:/app/app:z -v ./tests:/app/tests:z \
 help:
 	@echo "Targets:"
 	@echo "  image           Build raw-curator:latest"
-	@echo "  reset           Wipe cache + working dirs; reinit DB"
+	@echo "  reset           Wipe DB + cache + library/exported/jpeg; reinit DB (incoming/ untouched)"
 	@echo "  download-models Fetch HF + torch weights into models/"
 	@echo "  ingest          Walk photos/incoming -> DB + previews"
 	@echo "  filter          Cheap CPU filters"
@@ -32,11 +32,7 @@ image:
 	podman build -t raw-curator:latest -f Containerfile .
 
 reset:
-	rm -f cache/session.db cache/session.db-wal cache/session.db-shm
-	rm -rf cache/previews/* cache/thumbs/* 2>/dev/null || true
-	mkdir -p cache/previews cache/thumbs
-	rm -rf photos/library/* photos/archive/* photos/quarantine/* photos/exported/* photos/jpeg/* 2>/dev/null || true
-	$(COMPOSE) run --rm app alembic upgrade head
+	$(RUN) reset --force
 
 download-models:
 	$(COMPOSE) run --rm app python -m scripts.download_models

@@ -90,7 +90,7 @@ def serve(host: str = "127.0.0.1", port: int = 8080) -> None:
 @app.command()
 def reset(force: bool = False) -> None:
     """Phase 9: wipe session state (cache + working dirs + DB)."""
-    from scripts.end_session import end_session
+    from app.orchestrator.reset import end_session
 
     end_session(force=force)
 
