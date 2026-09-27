@@ -39,6 +39,8 @@ class FakeModel:
 
     def apply(self, rgb, **params):
         FakeModel.applies.append(self.name)
+        if self.name == "esrgan":  # Real-ESRGAN honours scale=2: return a 2x image
+            return np.repeat(np.repeat(rgb, 2, axis=0), 2, axis=1)
         return rgb
 
 
@@ -117,25 +119,7 @@ def test_one_failing_develop_does_not_stop_the_batch(env) -> None:
 def test_x2_master_lands_at_the_target_resolution(env, monkeypatch: pytest.MonkeyPatch) -> None:
     tmp_path, fake_develop, candidate = env
     monkeypatch.setattr(settings, "enhance_target_res", "200%")
-
-    class Esrgan2x:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc: object) -> None: ...
-
-        def apply(self, rgb, **params):
-            return np.repeat(np.repeat(rgb, 2, axis=0), 2, axis=1)
-
-    monkeypatch.setattr(
-        batch,
-        "AI_MODELS",
-        {
-            "scunet_denoise": lambda: FakeModel("scunet"),
-            "realesrgan_upscale": lambda: Esrgan2x(),
-            "codeformer_restore": lambda: FakeModel("cf"),
-        },
-    )
+    # env's FakeModel("esrgan") already returns a 2x image, honouring scale=2.
     monkeypatch.setattr(
         batch, "plan_for", lambda report, **kw: _forced_plan(("realesrgan_upscale",))
     )

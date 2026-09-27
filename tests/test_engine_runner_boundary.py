@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from app.enhancement.engine import runner
 
@@ -52,3 +53,9 @@ def test_resize_float_preserves_a_constant_image() -> None:
     out = resize_float(const, (12, 12))
     assert out.shape == (12, 12, 3)
     assert np.allclose(out, 0.37, atol=1e-6)
+
+
+def test_scale2_requires_the_model_to_upscale() -> None:
+    lin = np.random.default_rng(6).random((6, 6, 3), dtype=np.float32) * 0.5
+    with pytest.raises(ValueError):
+        runner.apply_ai_delta(lin, lambda u8: u8, scale=2)

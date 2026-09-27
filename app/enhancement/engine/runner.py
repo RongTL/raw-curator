@@ -77,16 +77,20 @@ def apply_ai_delta(
     The model sees `_to_u8(x_lin)` and returns 8-bit sRGB; we compute the delta the model
     introduced (in linear space) and add it to the *full-precision* float base, so the master
     keeps 16-bit precision instead of being quantised to the model's 8-bit output. When
-    `scale > 1` (Real-ESRGAN x2) and the model actually returned a `scale`x-larger image, the
-    base and the model's 8-bit reference are Lanczos-upsampled so the delta lines up with the
-    model's larger output; otherwise the delta is merged at the input resolution.
+    `scale > 1` (Real-ESRGAN x2) the model must return a `scale`x-larger image; the base and the
+    model's 8-bit reference are Lanczos-upsampled so the delta lines up with the model's larger
+    output. A model that does not honour `scale` raises `ValueError`.
 
     `x_lin` is float32 linear Rec.2020 in [0, 1]; returns the same, clipped.
     """
     x8 = _to_u8(x_lin)
     y8 = model_fn(x8)
     h, w = x_lin.shape[:2]
-    if scale > 1 and y8.shape[:2] == (h * scale, w * scale):
+    if scale > 1:
+        if y8.shape[:2] != (h * scale, w * scale):
+            raise ValueError(
+                f"model returned {y8.shape[:2]} for scale={scale}; expected {(h * scale, w * scale)}"
+            )
         base = resize_float(x_lin, (w * scale, h * scale))  # full-precision Lanczos upsample
         ref8 = lanczos_resize(x8, (w * scale, h * scale))  # sRGB-domain, like the model saw
     else:
