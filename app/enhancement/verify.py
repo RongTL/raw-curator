@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass, replace
 
 from app.arrays import Array
+from app.enhancement.colorspace import encode_srgb, luma
 from app.enhancement.engine.plan import EnhancementPlan, QualityReport
 
 Q_DROP_LIMIT = 5.0
@@ -38,9 +39,13 @@ def verify(before: QualityReport, after: QualityReport, result: Array) -> Verdic
         reasons.append("q_drop")
     if after.highlight_clip > 2.0 * before.highlight_clip + 0.01:
         reasons.append("highlight_clip")
-    if float(result.mean()) < 0.03:
+    # The spec's collapse sentinels are display-referred: evaluate them on the
+    # sRGB-encoded luma so a legitimately dark (but visible) linear frame is not
+    # mistaken for a black one (linear 0.03 ~= display 0.19).
+    lum = encode_srgb(luma(result))
+    if float(lum.mean()) < 0.03:
         reasons.append("mean_luma")
-    if float(result.std()) < 0.02:
+    if float(lum.std()) < 0.02:
         reasons.append("std")
     return Verdict(bool(reasons), tuple(reasons), before.score_q, after.score_q)
 

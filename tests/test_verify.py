@@ -33,6 +33,22 @@ def test_collapsed_image_is_degraded_regardless_of_scores() -> None:
     assert v.degraded is True and {"mean_luma", "std"} & set(v.reasons)
 
 
+def test_dark_but_textured_linear_frame_is_not_degraded() -> None:
+    # Constant 0.02 linear ~= display 0.15 once sRGB-encoded, well above the
+    # 0.03 sentinel; the small texture keeps display std above 0.02 too.
+    rng = np.random.default_rng(3)
+    dark = np.clip(0.02 + rng.normal(0.0, 0.01, (16, 16, 3)).astype(np.float32), 0.0, 1.0)
+    v = verify(_report(), _report(), dark)
+    assert v.degraded is False and v.reasons == ()
+
+
+def test_truly_black_frame_is_degraded_on_display_luma() -> None:
+    black = np.full((16, 16, 3), 0.0005, dtype=np.float32)  # display ~0.006, flat
+    v = verify(_report(), _report(score_q=99.0), black)
+    assert v.degraded is True
+    assert "mean_luma" in v.reasons and "std" in v.reasons
+
+
 def test_safe_plan_keeps_only_tone_steps() -> None:
     plan = plan_from_report(
         _report(luma_noise=6.0, lap_var=50.0, highlight_clip=0.05),
