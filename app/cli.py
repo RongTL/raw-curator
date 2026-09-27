@@ -11,6 +11,14 @@ app = typer.Typer(help="AI RAW photo curation pipeline (ephemeral).")
 console = Console()
 
 
+@app.callback()
+def _setup() -> None:
+    """Runs before every sub-command: route log.* output to stderr."""
+    from app.logging_setup import configure_logging
+
+    configure_logging()
+
+
 @app.command()
 def ingest() -> None:
     """Walk photos/incoming -> DB rows + previews + thumbs."""

@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     # UI warns when the photos volume has less free space than this (GB)
     monitor_disk_warn_free_gb: float = 50.0
 
+    log_level: str = "INFO"  # root logger level for every raw-curator process
+
     @property
     def db_path(self) -> Path:
         return self.cache / "session.db"
