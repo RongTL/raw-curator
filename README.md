@@ -218,8 +218,6 @@ The most useful overrides:
 | `RAWCURATOR_SCUNET_TILE` / `_TILE_PAD` | `512` / `32` | SCUNet tile edge and reflective padding (px). Lower the tile (multiples of 64) on OOM. |
 | `RAWCURATOR_CODEFORMER_MAX_LONG_EDGE` | `2048`    | Long-edge cap fed to CodeFormer's face detector, which runs on the full frame. Lower on OOM. |
 | `RAWCURATOR_BURST_SECONDS`        | `2`           | EXIF timestamp window for burst grouping                                |
-| `RAWCURATOR_PHASH_HAMMING_THRESHOLD` | `8`        | Within-burst pHash distance for "duplicate"                             |
-| `RAWCURATOR_CLIP_COSINE_THRESHOLD`| `0.92`        | CLIP cosine threshold for cross-batch "duplicate"                       |
 | `RAWCURATOR_CPU_WORKERS`          | `os.cpu_count()` (e.g. `8` on Ryzen 3 3100) | Process pool size for ingest / filter / export-jpeg. Set lower to cap memory pressure. |
 | `RAWCURATOR_JPEG_QUALITY`         | `92`          | JPEG quality used by `make export-jpeg`                                 |
 | `RAWCURATOR_JPEG_LONG_EDGE`       | `0`           | `0` keeps native resolution; e.g. `4000` caps the long edge for sharing |
