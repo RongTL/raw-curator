@@ -141,8 +141,10 @@ def test_reset_in_progress_blocks_run(client: TestClient, monkeypatch) -> None:
     from app.api.routes import pipeline as pl
 
     release = _a.Event()
+    loop_holder: dict[str, _a.AbstractEventLoop] = {}
 
     async def slow_reset() -> None:
+        loop_holder["loop"] = _a.get_running_loop()
         await release.wait()
 
     monkeypatch.setattr(pl, "reset_session", slow_reset)
@@ -163,7 +165,8 @@ def test_reset_in_progress_blocks_run(client: TestClient, monkeypatch) -> None:
     assert pl._resetting is True
     assert client.post("/api/pipeline/run/ingest").status_code == 409
     assert client.post("/api/pipeline/reset", json={"confirm": "RESET"}).status_code == 409
-    release.set()
+    # asyncio.Event is not thread-safe; wake the waiter from its own loop.
+    loop_holder["loop"].call_soon_threadsafe(release.set)
     t.join(timeout=10)
     assert codes["reset"] == 200
 
