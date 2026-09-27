@@ -1,8 +1,12 @@
 COMPOSE ?= podman-compose
 RUN := $(COMPOSE) run --rm app raw-curator
+# Dev-loop targets bind-mount the working tree over the copies baked into the
+# image, so `make test` exercises your edits without a 15-minute rebuild.
+DEV := $(COMPOSE) run --rm -v ./app:/app/app:z -v ./tests:/app/tests:z \
+       -v ./pyproject.toml:/app/pyproject.toml:z app
 
 .PHONY: image reset run ingest filter score cluster submit enhance export-jpeg \
-        serve shell test lint typecheck download-models clean help
+        serve shell test lint format typecheck download-models clean help
 
 help:
 	@echo "Targets:"
@@ -14,13 +18,14 @@ help:
 	@echo "  score           GPU scoring (clip/iqa/faces)"
 	@echo "  cluster         Burst + phash + CLIP HDBSCAN"
 	@echo "  submit          Apply staged decisions"
-	@echo "  enhance         Hybrid RAW -> AI -> TIFF for Yes+Low set"
+	@echo "  enhance         RAW -> AI chain -> 16-bit TIFF for every decided photo"
 	@echo "  export-jpeg     Convert library RAWs + exported TIFFs to share-ready JPEGs"
 	@echo "  run             Ingest -> filter -> score -> cluster (autopilot)"
 	@echo "  serve           Control Center UI on http://localhost:8080 (runs all stages)"
 	@echo "  shell           Drop into a shell in the app container"
-	@echo "  test            pytest -q inside the container"
-	@echo "  lint            ruff check"
+	@echo "  test            pytest -q inside the container (working tree mounted)"
+	@echo "  lint            ruff check + ruff format --check"
+	@echo "  format          ruff format (rewrites files)"
 	@echo "  typecheck       mypy app/"
 
 image:
@@ -67,13 +72,16 @@ shell:
 	$(COMPOSE) run --rm app bash
 
 test:
-	$(COMPOSE) run --rm app pytest -q
+	$(DEV) pytest -q
 
 lint:
-	$(COMPOSE) run --rm app ruff check app/ tests/
+	$(DEV) sh -c "ruff check app/ tests/ && ruff format --check app/ tests/"
+
+format:
+	$(DEV) ruff format app/ tests/
 
 typecheck:
-	$(COMPOSE) run --rm app mypy app/
+	$(DEV) mypy app/
 
 clean:
 	$(COMPOSE) down -v 2>/dev/null || true
