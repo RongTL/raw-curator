@@ -130,7 +130,7 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     size = preview_size(Path(item.photo.preview_path) if item.photo.preview_path else None)
     item.face_boxes = scale_boxes(item.face_boxes, size, (w, h)) if size else []
     item.report = score_report(measure_all(img, face_boxes=item.face_boxes or None))
-    item.plan = plan_for(item.report, has_faces=bool(item.face_boxes))
+    item.plan = plan_for(item.report, has_faces=bool(item.face_boxes), iso=item.photo.iso)
     item.ai_pending = ai_steps(item.plan)
     persist_all(item)
     img = apply_pre_ai(img, item.plan)

@@ -177,3 +177,18 @@ def test_backlit_switch_off_skips_backlit_recover_even_when_bimodal() -> None:
 def test_tone_map_is_never_planned() -> None:
     for report in (_baseline(), _baseline(mean_luma=60.0), _baseline(highlight_clip=0.2)):
         assert "tone_map_final" not in _step_names(plan_from_report(report))
+
+
+def test_low_iso_mild_noise_does_not_trigger_scunet() -> None:
+    plan = plan_from_report(_baseline(luma_noise=3.0), iso=100)
+    assert "scunet_denoise" not in _step_names(plan)
+
+
+def test_high_iso_mild_noise_triggers_scunet() -> None:
+    plan = plan_from_report(_baseline(luma_noise=3.0), iso=3200)
+    assert "scunet_denoise" in _step_names(plan)
+
+
+def test_strong_noise_triggers_regardless_of_iso() -> None:
+    assert "scunet_denoise" in _step_names(plan_from_report(_baseline(luma_noise=5.0), iso=100))
+    assert "scunet_denoise" in _step_names(plan_from_report(_baseline(luma_noise=5.0), iso=None))

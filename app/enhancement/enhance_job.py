@@ -45,6 +45,7 @@ class PhotoCandidate:
     file_kind: str | None
     action: str
     preview_path: str | None = None
+    iso: int | None = None
 
 
 def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
@@ -57,6 +58,7 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                 Photo.file_kind,
                 Decision.action,
                 Photo.preview_path,
+                Photo.iso,
             )
             .join(Decision, Photo.hash == Decision.photo_hash)
             .where(Decision.action.in_(ENHANCE_ACTIONS))
@@ -67,7 +69,7 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
         ).all()
         for digest, x, y, w, h in face_rows:
             faces_by_hash.setdefault(digest, []).append((int(x), int(y), int(w), int(h)))
-        for digest, source_path, file_kind, action, preview_path in rows:
+        for digest, source_path, file_kind, action, preview_path, iso in rows:
             snapshots.append(
                 (
                     PhotoCandidate(
@@ -76,6 +78,7 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                         file_kind=file_kind,
                         action=action,
                         preview_path=preview_path,
+                        iso=iso,
                     ),
                     faces_by_hash.get(digest, []),
                 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -22,12 +23,25 @@ def _develop_linear(raw: Path, tmp_path: Path) -> np.ndarray:
     return tifffile.imread(str(out))[..., :3].astype(np.float32) / 65535.0
 
 
+def _iso(raw: Path) -> int | None:
+    proc = subprocess.run(
+        ["exiftool", "-s3", "-ISO", str(raw)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    out = proc.stdout.strip()
+    return int(out) if out else None
+
+
 @pytest.mark.parametrize("stem", sorted(EXPECT))
 def test_plan_matches_expectation(stem: str, tmp_path: Path) -> None:
     raw = CORPUS / f"{stem}.CR3"
     if not raw.exists():
         pytest.skip(f"{raw} not present")
-    plan = plan_from_report(score_report(measure_all(_develop_linear(raw, tmp_path))))
+    plan = plan_from_report(
+        score_report(measure_all(_develop_linear(raw, tmp_path))), iso=_iso(raw)
+    )
     names = {s.name for s in plan.steps}
     exp = EXPECT[stem]
     assert set(exp.get("present", ())) <= names, f"missing {set(exp.get('present', ())) - names}"

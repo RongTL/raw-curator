@@ -40,6 +40,7 @@ def plan_from_report(
     denoise: bool = True,
     face_restore: bool = True,
     backlit_recovery: bool = True,
+    iso: int | None = None,
     enhance_codeformer_w: float = 0.85,
     enhance_realesrgan_fidelity: float = 0.7,
     enhance_denoise_strength: float = 0.75,
@@ -146,7 +147,8 @@ def plan_from_report(
 
     # §5 Noise (must come before §4 sharpening per §7)
     n = max(report.luma_noise, report.chroma_noise * 0.5)
-    if denoise and n > 2.0:
+    noisy = n > 4.0 or (n > 2.0 and (iso is None or iso >= 800))
+    if denoise and noisy:
         strength = max(enhance_denoise_strength * 0.6, min(0.95, 0.5 + (n - 2.0) * 0.05))
         steps.append(
             StepSpec(
