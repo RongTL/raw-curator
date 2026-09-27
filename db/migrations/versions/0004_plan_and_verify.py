@@ -21,7 +21,7 @@ _COLS = [
     sa.Column("plan_json", sa.Text(), nullable=True),
     sa.Column("verify_json", sa.Text(), nullable=True),
     sa.Column("score_q_after", sa.Float(), nullable=True),
-    sa.Column("degraded", sa.Integer(), server_default="0"),
+    sa.Column("degraded", sa.Integer(), nullable=False, server_default="0"),
     sa.Column("neutral_fraction", sa.Float(), nullable=True),
     sa.Column("rg_neutral", sa.Float(), nullable=True),
     sa.Column("bg_neutral", sa.Float(), nullable=True),

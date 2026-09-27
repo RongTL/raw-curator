@@ -208,7 +208,7 @@ class PhotoQualityReport(Base):
     plan_json: Mapped[str | None] = mapped_column(Text)
     verify_json: Mapped[str | None] = mapped_column(Text)
     score_q_after: Mapped[float | None] = mapped_column(Float)
-    degraded: Mapped[bool] = mapped_column(Integer, default=0)
+    degraded: Mapped[bool] = mapped_column(Integer, nullable=False, server_default="0", default=0)
     neutral_fraction: Mapped[float | None] = mapped_column(Float)
     rg_neutral: Mapped[float | None] = mapped_column(Float)
     bg_neutral: Mapped[float | None] = mapped_column(Float)
