@@ -73,7 +73,9 @@ def is_backlit(luma01: np.ndarray) -> bool:
     shadow_density = hist[:shadow_n].sum() / total
     highlight_density = hist[-highlight_n:].sum() / total
     midtone_density = hist[mid_lo:mid_hi].sum() / total
-    return (
+    # numpy comparisons yield numpy.bool_; callers (and the annotation) expect
+    # a real bool so identity checks like `is True` behave.
+    return bool(
         shadow_density >= _SHADOW_DENSITY_TRIGGER
         and highlight_density >= _HIGHLIGHT_DENSITY_TRIGGER
         and midtone_density <= _MIDTONE_DEFICIT_MAX
