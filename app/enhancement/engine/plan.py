@@ -100,6 +100,12 @@ class QualityReport:
     score_noise: float
     score_q: float  # weighted composite
 
+    # §3 Color — near-neutral white balance (Task 22). Appended last with
+    # defaults so positional construction elsewhere keeps working.
+    neutral_fraction: float = 0.0  # share of near-neutral pixels
+    rg_neutral: float | None = None  # r/g over neutral pixels; None if < 2% neutral
+    bg_neutral: float | None = None  # b/g over neutral pixels; None if < 2% neutral
+
 
 @dataclass(frozen=True)
 class EnhancementPlan:

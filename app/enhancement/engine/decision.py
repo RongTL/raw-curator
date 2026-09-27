@@ -118,17 +118,29 @@ def plan_from_report(
             )
         )
 
-    # §3 Color
-    cast = max(abs(report.rg_ratio - 1.0), abs(report.bg_ratio - 1.0))
-    if cast > 0.05:
-        strength = min(0.85, (cast - 0.05) * 5.0)
-        steps.append(
-            StepSpec(
-                name="white_balance",
-                params={"target_rg": 1.0, "target_bg": 1.0, "strength": strength},
-                reason=f"rg={report.rg_ratio:.3f}, bg={report.bg_ratio:.3f}",
+    # §3 Color — white balance is estimated from near-neutral pixels only and
+    # capped at half strength, so warm sunsets / tungsten interiors keep their
+    # mood instead of being neutralised on every frame (Task 22).
+    if (
+        report.neutral_fraction >= 0.02
+        and report.rg_neutral is not None
+        and report.bg_neutral is not None
+    ):
+        cast = max(abs(report.rg_neutral - 1.0), abs(report.bg_neutral - 1.0))
+        if cast > 0.12:
+            steps.append(
+                StepSpec(
+                    name="white_balance",
+                    params={
+                        "target_rg": 1.0,
+                        "target_bg": 1.0,
+                        "strength": min(0.5, (cast - 0.12) * 2.5),
+                        "neutral_only": True,
+                    },
+                    reason=f"neutral cast rg={report.rg_neutral:.3f} "
+                    f"bg={report.bg_neutral:.3f} over {report.neutral_fraction:.0%}",
+                )
             )
-        )
     if report.oversat_ratio > 0.05 or report.avg_saturation > 0.55:
         excess = max(
             report.oversat_ratio - 0.05,

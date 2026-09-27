@@ -96,6 +96,10 @@ def score_report(metrics: Mapping[str, float | None]) -> QualityReport:
     n = _score_noise(m)
     q = 0.25 * e + 0.20 * d + 0.25 * c + 0.15 * s + 0.15 * n
     skin = metrics.get("skin_hue_var")
+    # Near-neutral WB metrics travel the None-safe .get() path like skin_hue_var.
+    neutral_fraction = metrics.get("neutral_fraction")
+    rg_neutral = metrics.get("rg_neutral")
+    bg_neutral = metrics.get("bg_neutral")
     return QualityReport(
         mean_luma=float(m["mean_luma"]),
         shadow_clip=float(m["shadow_clip"]),
@@ -120,4 +124,7 @@ def score_report(metrics: Mapping[str, float | None]) -> QualityReport:
         score_sharpness=float(s),
         score_noise=float(n),
         score_q=float(q),
+        neutral_fraction=(float(neutral_fraction) if neutral_fraction is not None else 0.0),
+        rg_neutral=(float(rg_neutral) if rg_neutral is not None else None),
+        bg_neutral=(float(bg_neutral) if bg_neutral is not None else None),
     )

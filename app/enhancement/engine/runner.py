@@ -141,6 +141,7 @@ def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Ar
             target_rg=params.get("target_rg", 1.0),
             target_bg=params.get("target_bg", 1.0),
             strength=params.get("strength", 1.0),
+            neutral_only=bool(params.get("neutral_only", False)),
         )
     if name == "saturation_adjust":
         return color.adjust_saturation(

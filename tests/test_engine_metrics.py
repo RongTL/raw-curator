@@ -78,6 +78,14 @@ def test_color_metrics_neutral_is_neutral() -> None:
     assert 0.95 < m["bg_ratio"] < 1.05
 
 
+def test_neutral_pixels_estimate_ignores_a_blue_sky() -> None:
+    img = np.zeros((20, 20, 3), dtype=np.float32)
+    img[:10] = (0.2, 0.4, 0.9)  # sky: strongly chromatic, excluded
+    img[10:] = (0.5, 0.5, 0.5)  # grey wall: neutral
+    m = color_metrics(img)
+    assert m["neutral_fraction"] == 0.5 and abs(m["rg_neutral"] - 1.0) < 1e-6
+
+
 def test_sharpness_low_on_blur() -> None:
     m = sharpness_metrics(_gray(0.5))
     assert m["lap_var"] < 1.0

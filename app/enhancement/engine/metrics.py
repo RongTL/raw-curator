@@ -136,6 +136,22 @@ def dynamic_range_metrics(rgb_f01: Array) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
+def neutral_mask(rgb_f01: Array) -> Array:
+    """Boolean HxW mask of near-neutral pixels (spec §3.1, Task 22).
+
+    A pixel is near-neutral when its channel spread is small relative to its
+    brightest channel (``max(c) - min(c) < 0.08 * max(c)``) and its luma sits
+    in the mid range ``(0.05, 0.9)`` — dark and blown pixels carry no reliable
+    colour. Input is linear Rec.2020 float32 in [0, 1]. Shared by
+    ``color_metrics`` and ``gray_world(neutral_only=True)`` so the planner's
+    decision and the step's gains come from identical pixels.
+    """
+    mx = rgb_f01.max(axis=-1)
+    mn = rgb_f01.min(axis=-1)
+    lum = luma(rgb_f01)
+    return ((mx - mn) < 0.08 * np.maximum(mx, 1e-6)) & (lum > 0.05) & (lum < 0.9)
+
+
 def color_metrics(
     rgb_f01: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
@@ -151,6 +167,19 @@ def color_metrics(
     sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0).astype(np.float32)
     avg_sat = float(sat.mean())
     oversat = float((sat > 0.85).mean())
+
+    # White balance is estimated from near-neutral pixels only, so a warm sky
+    # or tungsten glow can't be mistaken for a colour cast (Task 22).
+    neutral = neutral_mask(rgb_f01)
+    neutral_fraction = float(neutral.mean())
+    rg_neutral: float | None
+    bg_neutral: float | None
+    if neutral_fraction >= 0.02:
+        nv = rgb_f01[neutral].mean(axis=0)
+        gn = max(float(nv[1]), 1e-6)
+        rg_neutral, bg_neutral = float(nv[0] / gn), float(nv[2] / gn)
+    else:
+        rg_neutral = bg_neutral = None
 
     skin_hue_var: float | None = None
     if face_boxes:
@@ -179,6 +208,9 @@ def color_metrics(
         "avg_saturation": avg_sat,
         "oversat_ratio": oversat,
         "skin_hue_var": skin_hue_var,
+        "neutral_fraction": neutral_fraction,
+        "rg_neutral": rg_neutral,
+        "bg_neutral": bg_neutral,
     }
 
 

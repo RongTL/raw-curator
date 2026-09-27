@@ -90,8 +90,24 @@ def test_high_dr_triggers_rolloff_not_clahe() -> None:
 
 
 def test_color_cast_triggers_white_balance() -> None:
-    plan = plan_from_report(_baseline(rg_ratio=1.20, bg_ratio=0.85))
+    plan = plan_from_report(_baseline(neutral_fraction=0.3, rg_neutral=1.20, bg_neutral=0.85))
     assert "white_balance" in _step_names(plan)
+
+
+def test_blue_hour_scene_without_neutrals_gets_no_white_balance() -> None:
+    plan = plan_from_report(
+        _baseline(
+            rg_ratio=0.8, bg_ratio=1.3, neutral_fraction=0.005, rg_neutral=None, bg_neutral=None
+        )
+    )
+    assert "white_balance" not in _step_names(plan)
+
+
+def test_tungsten_cast_on_neutral_surfaces_is_half_corrected_at_most() -> None:
+    plan = plan_from_report(_baseline(neutral_fraction=0.3, rg_neutral=1.4, bg_neutral=0.7))
+    wb = next(s for s in plan.steps if s.name == "white_balance")
+    assert wb.params["strength"] <= 0.5
+    assert wb.params["neutral_only"] is True
 
 
 def test_oversaturated_triggers_desaturate() -> None:
@@ -163,6 +179,9 @@ def test_plan_order_matches_spec_section_7() -> None:
             avg_saturation=0.60,
             luma_noise=5.0,
             lap_var=40.0,
+            neutral_fraction=0.3,
+            rg_neutral=1.4,
+            bg_neutral=0.7,
         ),
         faces=[FaceInfo((0, 0, 120, 120), 40.0)],
     )
