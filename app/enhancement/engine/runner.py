@@ -1,18 +1,20 @@
-"""Execute an EnhancementPlan.
+"""Execute an EnhancementPlan against a float32 linear Rec.2020 image.
 
-Step dispatch lives here. The runner manages three impedance mismatches:
+The batch pipeline (``app/enhancement/batch.py``) drives the steps directly:
+``apply_pre_ai`` runs the classical corrections before the AI stage,
+``apply_ai_delta`` merges each AI model's *change* into the full-precision
+float master at an AI boundary, and ``apply_post_ai`` runs the classical
+polish afterwards. ``run_plan`` wires those together for the verifier's
+safe-plan retry and any legacy single-image caller.
 
-1. **Bit depth**: classical steps operate on float32 RGB in [0, 1];
-   AI steps (SCUNet, Real-ESRGAN, CodeFormer) take uint8 RGB.
-   Conversions happen at AI boundaries only — the float state survives
-   across consecutive classical steps without quantisation.
+Two impedance mismatches are handled at the AI boundary only:
 
-2. **Resolution**: AI steps need a downscaled copy that fits in 6 GB
-   VRAM. Real-ESRGAN x2 already restores most of that resolution, and
-   the final Lanczos upsample brings the result back to native.
+1. **Bit depth**: classical steps stay on float32 linear RGB in [0, 1];
+   AI steps (SCUNet, Real-ESRGAN, CodeFormer) take uint8 sRGB. The float
+   state survives across consecutive classical steps without quantisation.
 
-3. **VRAM hygiene**: after each GPU step we call
-   `torch.cuda.empty_cache()` so the next model fits in 6 GB.
+2. **VRAM hygiene**: after each GPU step we call
+   ``torch.cuda.empty_cache()`` so the next model fits in 6 GB.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from app.enhancement.downsample import lanczos_resize, resize_float
 from app.enhancement.engine.plan import EnhancementPlan, StepSpec
 from app.enhancement.face_restore import codeformer_restore
 from app.enhancement.tone_balance import recover_backlit
-from app.enhancement.upsample_final import _parse_target
+from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import realesrgan_x2
 
 log = logging.getLogger(__name__)
@@ -162,12 +164,6 @@ def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Ar
             clip_limit=params.get("clip_limit", 2.0),
             tile_grid=tuple(params.get("tile_grid", (8, 8))),
         )
-    if name == "tone_map_final":
-        return tone_map.filmic_tone_map(
-            rgb_f01,
-            shoulder=params.get("shoulder", 0.88),
-            toe=params.get("toe", 0.02),
-        )
     raise ValueError(f"unknown classical step: {name}")
 
 
@@ -228,7 +224,7 @@ def run_plan(
                 scale=2 if step.name == "realesrgan_upscale" else 1,
             )
             _free_gpu()
-        target = _parse_target(settings.enhance_target_res, native_size)
+        target = parse_target(settings.enhance_target_res, native_size)
         h, w = img.shape[:2]
         if (w, h) != target:
             img = resize_float(img, target)

@@ -33,7 +33,8 @@ StepName = Literal[
     "codeformer_restore",  # params: weight; only when faces present
     # Layer 1 — sharpening (spec §4)
     "unsharp_mask",  # luminance unsharp, params: amount, radius, threshold
-    # Layer 1 — final pass (spec §7 last step)
+    # Retained for schema/registry compatibility; the planner no longer emits it
+    # (darktable's sigmoid workflow provides the output roll-off at develop time).
     "tone_map_final",  # filmic curve, params: shoulder, toe
 ]
 

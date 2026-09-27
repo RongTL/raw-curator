@@ -207,11 +207,14 @@ def plan_from_report(
         if max(f.box[2], f.box[3]) < face_restore_max_px or f.lap_var < 100.0 or noisy
     ]
     if face_restore and degraded_faces:
+        reason = f"{len(degraded_faces)} of {len(faces)} faces small/soft"
+        if noisy:  # noise degrades every face, so note it when it was a trigger
+            reason += "/noisy"
         steps.append(
             StepSpec(
                 name="codeformer_restore",
                 params={"weight": enhance_codeformer_w},
-                reason=f"{len(degraded_faces)} of {len(faces)} faces small/soft",
+                reason=reason,
             )
         )
     # Sharpen on the sharpest region's variance when available, so a crisp subject

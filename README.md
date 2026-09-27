@@ -262,9 +262,11 @@ no-op TIFF).
   `codeformer-pip`'s in-container default cache, not `/data/models/`.
   Each fresh `podman run --rm` re-downloads them. Workaround: set
   `XDG_CACHE_HOME=/data/models/codeformer-cache` in `compose.yaml`.
-- **No formal pytest acceptance suite against real RAW fixtures** —
-  validation was hand-run. Unit tests cover schema, filters,
-  clustering, and decision rules.
+- **Real-RAW acceptance coverage is plan-level only** —
+  `tests/test_engine_corpus.py` asserts the planned steps for each RAW in
+  `tests/data/corpus` (skipped via the `real_raw` marker unless the fixtures
+  are present); the developed-pixel quality is still validated by eye. Unit
+  tests cover schema, filters, clustering, and decision rules.
 
 ---
 

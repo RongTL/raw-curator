@@ -48,7 +48,7 @@ from app.enhancement.face_restore import CodeFormerModel
 from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import copy_metadata, write_tiff16
 from app.enhancement.sidecar import resolve_xmp
-from app.enhancement.upsample_final import _parse_target
+from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import RealEsrganModel
 from app.enhancement.verify import Verdict, safe_plan, verify
 from app.paths import relative_subpath
@@ -108,7 +108,7 @@ def _face_infos(img: Array, boxes: list[FaceBox]) -> list[FaceInfo]:
 
 def plan_for(report: QualityReport, *, native_size: tuple[int, int], **kw: Any) -> EnhancementPlan:
     native_long_edge = max(native_size)
-    target = _parse_target(settings.enhance_target_res, native_size)
+    target = parse_target(settings.enhance_target_res, native_size)
     target_scale = max(target) / native_long_edge
     return plan_from_report(
         report,
@@ -247,7 +247,7 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
     src = Path(item.photo.source_path)
     img = np.load(item.intermediate).astype(np.float32)
     if item.ai_pending:
-        target = _parse_target(settings.enhance_target_res, item.native_size)
+        target = parse_target(settings.enhance_target_res, item.native_size)
         h, w = img.shape[:2]
         if (w, h) != target:
             img = resize_float(img, target)

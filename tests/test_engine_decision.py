@@ -261,3 +261,10 @@ def test_high_iso_mild_noise_triggers_scunet() -> None:
 def test_strong_noise_triggers_regardless_of_iso() -> None:
     assert "scunet_denoise" in _step_names(plan_from_report(_baseline(luma_noise=5.0), iso=100))
     assert "scunet_denoise" in _step_names(plan_from_report(_baseline(luma_noise=5.0), iso=None))
+
+
+def test_codeformer_reason_flags_noise_when_that_is_the_trigger() -> None:
+    faces = [FaceInfo((0, 0, 900, 900), lap_var=400.0)]  # large & sharp: only noise degrades it
+    plan = plan_from_report(_baseline(luma_noise=6.0), faces=faces)
+    cf = next(s for s in plan.steps if s.name == "codeformer_restore")
+    assert cf.reason == "1 of 1 faces small/soft/noisy"
