@@ -22,3 +22,33 @@ def test_boundary_round_trip_is_close_in_linear() -> None:
     lin = srgb_to_rec2020_linear(np.random.default_rng(3).random((4, 4, 3), dtype=np.float32) * 0.9)
     back = runner._from_u8(runner._to_u8(lin))
     assert np.abs(back - lin).max() < 0.01
+
+
+def test_identity_model_leaves_the_float_image_untouched() -> None:
+    lin = np.random.default_rng(4).random((8, 8, 3), dtype=np.float32) * 0.9
+    out = runner.apply_ai_delta(lin, lambda u8: u8)
+    assert np.allclose(out, lin, atol=1e-6)  # quantisation cancels: base keeps full precision
+
+
+def test_delta_is_scaled_by_strength() -> None:
+    lin = np.full((4, 4, 3), 0.2, dtype=np.float32)
+    brighter = lambda u8: np.clip(u8.astype(int) + 40, 0, 255).astype(np.uint8)  # noqa: E731
+    full = runner.apply_ai_delta(lin, brighter, strength=1.0)
+    half = runner.apply_ai_delta(lin, brighter, strength=0.5)
+    assert np.allclose(half - lin, (full - lin) * 0.5, atol=1e-4)
+
+
+def test_x2_model_output_is_merged_onto_an_upsampled_base() -> None:
+    lin = np.random.default_rng(5).random((6, 6, 3), dtype=np.float32) * 0.5
+    x2 = lambda u8: np.repeat(np.repeat(u8, 2, axis=0), 2, axis=1)  # noqa: E731
+    out = runner.apply_ai_delta(lin, x2, scale=2)
+    assert out.shape == (12, 12, 3)
+
+
+def test_resize_float_preserves_a_constant_image() -> None:
+    from app.enhancement.downsample import resize_float
+
+    const = np.full((6, 6, 3), 0.37, dtype=np.float32)
+    out = resize_float(const, (12, 12))
+    assert out.shape == (12, 12, 3)
+    assert np.allclose(out, 0.37, atol=1e-6)

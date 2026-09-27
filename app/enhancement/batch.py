@@ -8,6 +8,7 @@ import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -20,14 +21,13 @@ from app.config import settings
 from app.db import session_scope
 from app.enhancement.denoise import ScunetModel
 from app.enhancement.develop_full import darktable_cli, read_icc_profile
-from app.enhancement.downsample import scale as lanczos_scale
+from app.enhancement.downsample import resize_float
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
 from app.enhancement.engine.plan import EnhancementPlan, QualityReport, StepSpec
 from app.enhancement.engine.runner import (
-    _from_u8,
-    _to_u8,
     ai_steps,
+    apply_ai_delta,
     apply_post_ai,
     apply_pre_ai,
     run_plan,
@@ -47,7 +47,7 @@ from app.enhancement.face_restore import CodeFormerModel
 from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import copy_metadata, write_tiff16
 from app.enhancement.sidecar import resolve_xmp
-from app.enhancement.upsample_final import upsample_final
+from app.enhancement.upsample_final import _parse_target
 from app.enhancement.upscale import RealEsrganModel
 from app.enhancement.verify import Verdict, safe_plan, verify
 from app.paths import relative_subpath
@@ -151,12 +151,17 @@ def _phase2(items: list[WorkItem]) -> None:
                 try:
                     step = next(s for s in it.ai_pending if s.name == name)
                     img = np.load(it.intermediate).astype(np.float32)
-                    u8 = _to_u8(img)
                     if settings.enhance_ai_scale < 0.999 and not it.ai_scaled:
-                        u8 = lanczos_scale(u8, settings.enhance_ai_scale)
+                        h, w = img.shape[:2]
+                        s = settings.enhance_ai_scale
+                        img = resize_float(img, (round(w * s), round(h * s)))
                         it.ai_scaled = True
-                    u8 = model.apply(u8, **step.params)
-                    np.save(it.intermediate, _from_u8(u8).astype(np.float16))
+                    img = apply_ai_delta(
+                        img,
+                        partial(model.apply, **step.params),
+                        scale=2 if name == "realesrgan_upscale" else 1,
+                    )
+                    np.save(it.intermediate, img.astype(np.float16))
                 except Exception as exc:  # noqa: BLE001 - keep the batch going
                     it.failed = f"{name}: {exc}"
                     log.exception("AI step %s failed for %s", name, it.photo.source_path)
@@ -167,7 +172,10 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
     src = Path(item.photo.source_path)
     img = np.load(item.intermediate).astype(np.float32)
     if item.ai_pending:
-        img = _from_u8(upsample_final(_to_u8(img), item.native_size))
+        target = _parse_target(settings.enhance_target_res, item.native_size)
+        h, w = img.shape[:2]
+        if (w, h) != target:
+            img = resize_float(img, target)
     result = apply_post_ai(img, item.plan)
     after = score_report(measure_all(result, face_boxes=item.face_boxes or None))
     verdict = verify(item.report, after, result)

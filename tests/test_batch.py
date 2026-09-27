@@ -112,3 +112,35 @@ def test_one_failing_develop_does_not_stop_the_batch(env) -> None:
     assert (summary.enhanced, summary.failed) == (1, 1)
     assert (tmp_path / "photos" / "exported" / "OK.tif").exists()
     assert not list((tmp_path / "cache" / "enhance").glob("*.npy"))
+
+
+def test_x2_master_lands_at_the_target_resolution(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    tmp_path, fake_develop, candidate = env
+    monkeypatch.setattr(settings, "enhance_target_res", "200%")
+
+    class Esrgan2x:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> None: ...
+
+        def apply(self, rgb, **params):
+            return np.repeat(np.repeat(rgb, 2, axis=0), 2, axis=1)
+
+    monkeypatch.setattr(
+        batch,
+        "AI_MODELS",
+        {
+            "scunet_denoise": lambda: FakeModel("scunet"),
+            "realesrgan_upscale": lambda: Esrgan2x(),
+            "codeformer_restore": lambda: FakeModel("cf"),
+        },
+    )
+    monkeypatch.setattr(
+        batch, "plan_for", lambda report, **kw: _forced_plan(("realesrgan_upscale",))
+    )
+    summary = batch.run_batch([candidate("A.CR3")], develop=fake_develop)
+    assert summary.enhanced == 1
+    master = tifffile.imread(tmp_path / "photos" / "exported" / "A.tif")
+    # fixture develops a (64, 96, 3) frame; 200% target -> exactly 2x each dim.
+    assert master.shape == (128, 192, 3)
