@@ -35,3 +35,9 @@ def test_read_icc_profile_returns_tag_bytes_or_none(tmp_path: Path) -> None:
     tifffile.imwrite(tmp_path / "without.tif", arr)
     assert read_icc_profile(tmp_path / "with.tif") == icc
     assert read_icc_profile(tmp_path / "without.tif") is None
+
+
+def test_default_workflow_is_sigmoid() -> None:
+    from app.config import Settings
+
+    assert Settings(_env_file=None).darktable_workflow == "scene-referred (sigmoid)"

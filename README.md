@@ -206,6 +206,7 @@ The most useful overrides:
 
 | Variable                          | Default       | Purpose                                                                 |
 |-----------------------------------|---------------|-------------------------------------------------------------------------|
+| `RAWCURATOR_DARKTABLE_WORKFLOW`   | `scene-referred (sigmoid)` | darktable pixel workflow for develop; filmic is the 4.6 default look |
 | `RAWCURATOR_ENHANCE_AI_SCALE`     | `1.0`         | Pre-AI downscale factor. `1.0` means AI sees the full native source — maximum detail recovery, peaks ~5.5 GB on a 6 GB card (24 MP). Drop to `0.85` / `0.7` / `0.5` progressively if OOM or if other CUDA processes share the GPU. |
 | `RAWCURATOR_ENHANCE_DENOISE`      | `true`        | Skip SCUNet if false                                                    |
 | `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` | `0.75`    | Blends SCUNet output with the input. `1.0` is full denoise; `<1` retains natural micro-texture so the image doesn't look plastic. |

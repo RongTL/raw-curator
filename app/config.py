@@ -67,8 +67,8 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"  # root logger level for every raw-curator process
 
-    # darktable pixel workflow for the develop step; Task 15 switches to sigmoid.
-    darktable_workflow: str = "scene-referred (filmic)"
+    # darktable pixel workflow for the develop step; filmic is darktable 4.6's own default look.
+    darktable_workflow: str = "scene-referred (sigmoid)"
 
     @property
     def db_path(self) -> Path:
