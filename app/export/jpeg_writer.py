@@ -12,25 +12,10 @@ import rawpy
 import tifffile
 from PIL import Image, ImageOps
 
-from app.ingest.decode import (
-    HEIC_EXTS,
-    JPEG_EXTS,
-    PNG_EXTS,
-    RAW_EXTS,
-    TIFF_EXTS,
-    FileKind,
-    classify_kind,
-    heic_available,
-)
+from app.ingest.decode import FileKind, classify_kind, heic_available
+from app.ingest.extensions import ALL_SUPPORTED_EXTS, HEIC_EXTS
 
 log = logging.getLogger(__name__)
-
-
-RAW_EXTENSIONS = RAW_EXTS
-TIFF_EXTENSIONS = TIFF_EXTS
-JPEG_EXTENSIONS = JPEG_EXTS
-HEIC_EXTENSIONS = HEIC_EXTS
-PNG_EXTENSIONS = PNG_EXTS
 
 
 def _resize_long_edge(arr: np.ndarray, long_edge: int) -> np.ndarray:
@@ -175,19 +160,9 @@ def convert_image_to_jpeg(
     raise ValueError(f"unsupported file for JPEG export: {src.suffix} ({src})")
 
 
-def is_raw(path: Path) -> bool:
-    return path.suffix.lower() in RAW_EXTENSIONS
-
-
-def is_tiff(path: Path) -> bool:
-    return path.suffix.lower() in TIFF_EXTENSIONS
-
-
 def is_convertible(path: Path) -> bool:
     """True if the path's extension is one we know how to read into a JPEG."""
     ext = path.suffix.lower()
-    if ext in HEIC_EXTENSIONS and not heic_available():
+    if ext in HEIC_EXTS and not heic_available():
         return False
-    return ext in (
-        RAW_EXTENSIONS | TIFF_EXTENSIONS | JPEG_EXTENSIONS | HEIC_EXTENSIONS | PNG_EXTENSIONS
-    )
+    return ext in ALL_SUPPORTED_EXTS

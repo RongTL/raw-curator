@@ -12,32 +12,19 @@ from PIL import Image
 
 from app.export import jpeg_job
 from app.export.jpeg_writer import (
-    RAW_EXTENSIONS,
-    TIFF_EXTENSIONS,
     _load_tiff_as_rgb8,
     _resize_long_edge,
     convert_tiff_to_jpeg,
-    is_raw,
-    is_tiff,
+    is_convertible,
 )
 
 
-def test_is_raw_recognises_common_formats() -> None:
-    assert is_raw(Path("IMG_0001.CR3"))
-    assert is_raw(Path("DSC_0042.nef"))
-    assert is_raw(Path("foo.arw"))
-    assert not is_raw(Path("foo.tif"))
-    assert not is_raw(Path("foo.jpg"))
-
-
-def test_is_tiff_recognises_both_extensions() -> None:
-    assert is_tiff(Path("a.tif"))
-    assert is_tiff(Path("a.TIFF"))
-    assert not is_tiff(Path("a.cr3"))
-
-
-def test_extension_sets_have_no_overlap() -> None:
-    assert RAW_EXTENSIONS.isdisjoint(TIFF_EXTENSIONS)
+def test_is_convertible_accepts_every_supported_kind() -> None:
+    assert is_convertible(Path("IMG_0001.CR3"))
+    assert is_convertible(Path("a.TIFF"))
+    assert is_convertible(Path("a.jpg"))
+    assert is_convertible(Path("a.png"))
+    assert not is_convertible(Path("a.txt"))
 
 
 def test_resize_long_edge_noop_when_below_target() -> None:

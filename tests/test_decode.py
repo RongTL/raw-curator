@@ -10,6 +10,7 @@ import tifffile
 from PIL import Image
 
 from app.ingest import decode
+from app.ingest import extensions as ext
 
 
 def test_classify_raw_extensions() -> None:
@@ -86,7 +87,7 @@ def test_all_supported_exts_is_union() -> None:
 
 
 def test_extension_sets_pairwise_disjoint() -> None:
-    sets = [decode.RAW_EXTS, decode.JPEG_EXTS, decode.TIFF_EXTS, decode.HEIC_EXTS, decode.PNG_EXTS]
+    sets = [ext.RAW_EXTS, ext.JPEG_EXTS, ext.TIFF_EXTS, ext.HEIC_EXTS, ext.PNG_EXTS]
     for i, a in enumerate(sets):
         for b in sets[i + 1 :]:
             assert a.isdisjoint(b), f"{a} ∩ {b} non-empty"

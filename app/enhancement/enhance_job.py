@@ -17,7 +17,7 @@ For each photo whose decision action is in {keep_and_enhance, enhance_only}:
 
 Hardware fit (Ryzen 3 3100 + 24 GB RAM + RTX 2060 6 GB):
 - Full-res 24 MP float32 RGB = ~290 MB; well within 24 GB.
-- AI step downscale (enhance_ai_scale=0.7) keeps SCUNet/Real-ESRGAN under 6 GB.
+- enhance_ai_scale < 1 downsizes the AI-step input if SCUNet/Real-ESRGAN OOM.
 - cv2 kernels release the GIL — they saturate all 8 threads automatically.
 """
 
@@ -186,7 +186,6 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
     result_f01 = run_plan(rgb_f01, plan, native_size=(native_w, native_h))
 
     out = settings.photos / "exported" / relative_subpath(src, settings.photos).with_suffix(".tif")
-    # write_tiff16 expects uint8 currently; the existing wrapper handles conversion.
     write_tiff16((result_f01 * 65535.0 + 0.5).clip(0, 65535).astype(np.uint16), out)
 
     with contextlib.suppress(OSError):

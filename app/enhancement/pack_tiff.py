@@ -1,4 +1,4 @@
-"""Write a 16-bit TIFF with sRGB ICC profile + (optional) XMP."""
+"""Write the enhanced image as a 16-bit LZW-compressed RGB TIFF."""
 
 from __future__ import annotations
 
