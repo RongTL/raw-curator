@@ -1,60 +1,45 @@
+# Both services run the same image with the same mounts, GPU, and env; the
+# anchor below is that shared block. `ui` only overrides the entrypoint.
+x-raw-curator: &raw-curator
+  image: raw-curator:latest
+  # Host networking avoids a rootless podman 5.x cleanup bug that emits
+  # "rootless netns: kill network process: permission denied" after every
+  # container exit. Outbound (HF model downloads) still works fine.
+  network_mode: host
+  devices:
+    - nvidia.com/gpu=all
+  volumes:
+    - ./photos:/data/photos:z
+    - ./cache:/data/cache:z
+    - ./models:/data/models:z
+    - ./xmp:/data/xmp:z
+  working_dir: /app
+  # podman-compose only uses .env for ${VAR} interpolation in this file,
+  # not for the container's runtime environment. env_file injects all
+  # RAWCURATOR_*, PYTORCH_CUDA_ALLOC_CONF, etc. into the process.
+  env_file:
+    - .env
+  environment:
+    - RAWCURATOR_CACHE=/data/cache
+    - RAWCURATOR_MODELS=/data/models
+    - RAWCURATOR_PHOTOS=/data/photos
+    - RAWCURATOR_XMP=/data/xmp
+    # Reduce VRAM fragmentation between SCUNet -> Real-ESRGAN -> CodeFormer
+    # stages so a freed 2 GB block can be reused as 2x1 GB allocations.
+    - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 services:
+  # One-shot CLI stages: `podman-compose run --rm app raw-curator <cmd>`.
   app:
-    image: raw-curator:latest
+    <<: *raw-curator
     build:
       context: .
       dockerfile: Containerfile
-    # Host networking avoids a rootless podman 5.x cleanup bug that emits
-    # "rootless netns: kill network process: permission denied" after every
-    # container exit. Outbound (HF model downloads) still works fine.
-    network_mode: host
-    devices:
-      - nvidia.com/gpu=all
-    volumes:
-      - ./photos:/data/photos:z
-      - ./cache:/data/cache:z
-      - ./models:/data/models:z
-      - ./xmp:/data/xmp:z
-    working_dir: /app
-    # podman-compose only uses .env for ${VAR} interpolation in this file,
-    # not for the container's runtime environment. env_file injects all
-    # RAWCURATOR_*, PYTORCH_CUDA_ALLOC_CONF, etc. into the process.
-    env_file:
-      - .env
-    environment:
-      - RAWCURATOR_CACHE=/data/cache
-      - RAWCURATOR_MODELS=/data/models
-      - RAWCURATOR_PHOTOS=/data/photos
-      - RAWCURATOR_XMP=/data/xmp
-      # Reduce VRAM fragmentation between SCUNet -> Real-ESRGAN -> CodeFormer
-      # stages so a freed 2 GB block can be reused as 2x1 GB allocations.
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+  # Long-running control-center UI.
   ui:
-    image: raw-curator:latest
+    <<: *raw-curator
     depends_on:
       - app
     entrypoint: ["raw-curator"]
     command: ["serve", "--host", "0.0.0.0", "--port", "8080"]
-    network_mode: host
-    devices:
-      - nvidia.com/gpu=all
-    volumes:
-      - ./photos:/data/photos:z
-      - ./cache:/data/cache:z
-      - ./models:/data/models:z
-      - ./xmp:/data/xmp:z
-    working_dir: /app
-    # podman-compose only uses .env for ${VAR} interpolation in this file,
-    # not for the container's runtime environment. env_file injects all
-    # RAWCURATOR_*, PYTORCH_CUDA_ALLOC_CONF, etc. into the process.
-    env_file:
-      - .env
-    environment:
-      - RAWCURATOR_CACHE=/data/cache
-      - RAWCURATOR_MODELS=/data/models
-      - RAWCURATOR_PHOTOS=/data/photos
-      - RAWCURATOR_XMP=/data/xmp
-      # Reduce VRAM fragmentation between SCUNet -> Real-ESRGAN -> CodeFormer
-      # stages so a freed 2 GB block can be reused as 2x1 GB allocations.
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
