@@ -155,7 +155,16 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     h, w = img.shape[:2]
     item.native_size = (w, h)
     size = preview_size(Path(item.photo.preview_path) if item.photo.preview_path else None)
-    item.face_boxes = scale_boxes(item.face_boxes, size, (w, h)) if size else []
+    if size:
+        item.face_boxes = scale_boxes(item.face_boxes, size, (w, h))
+    else:
+        if item.face_boxes:
+            log.warning(
+                "preview missing for %s; ignoring %d face box(es)",
+                src.name,
+                len(item.face_boxes),
+            )
+        item.face_boxes = []
     item.faces = _face_infos(img, item.face_boxes)
     item.report = score_report(measure_all(img, face_boxes=item.face_boxes or None))
     item.plan = plan_for(

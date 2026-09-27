@@ -191,3 +191,16 @@ def test_model_load_failure_fails_only_its_photos(env, monkeypatch: pytest.Monke
     assert (tmp_path / "photos" / "exported" / "B.tif").exists()
     assert not (tmp_path / "photos" / "exported" / "A.tif").exists()
     assert not list((tmp_path / "cache" / "enhance").glob("*.npy"))
+
+
+def test_preview_missing_warns_before_dropping_face_boxes(
+    env, caplog: pytest.LogCaptureFixture
+) -> None:
+    tmp_path, fake_develop, _ = env
+    p = tmp_path / "photos" / "incoming" / "F.CR3"
+    p.write_bytes(b"raw")
+    photo = PhotoCandidate("F", str(p), "raw", "keep_and_enhance", preview_path=None)
+    with caplog.at_level("WARNING"):
+        summary = batch.run_batch([(photo, [(10, 10, 20, 20)])], develop=fake_develop)
+    assert summary.enhanced == 1
+    assert "preview missing" in caplog.text
