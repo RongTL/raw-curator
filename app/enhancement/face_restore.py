@@ -3,15 +3,56 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
 
 from app.arrays import Array
 from app.config import settings
+from app.enhancement.geometry import Box
 from app.enhancement.weights import codeformer_weights
 
 log = logging.getLogger(__name__)
+
+
+def guard_faces(
+    before: Array,
+    after: Array,
+    boxes: Sequence[Box],
+    *,
+    embed: Callable[[Array], Array],
+    min_similarity: float,
+) -> Array:
+    """Revert restored faces whose identity drifted, comparing before vs after.
+
+    Both crops pass through the identical ``embed`` transform, so the cosine
+    measures only what restoration changed. For each box (clamped to the image;
+    empty crops skipped) the original pixels are pasted back into a copy of
+    ``after`` when ``cos(embed(after_crop), embed(before_crop)) < min_similarity``.
+    ``before``/``after`` are uint8 RGB of the same shape; ``after`` is not mutated.
+    """
+    out = after.copy()
+    h, w = after.shape[:2]
+    for x, y, bw, bh in boxes:
+        x0, y0 = max(x, 0), max(y, 0)
+        x1, y1 = min(x + bw, w), min(y + bh, h)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        ref = embed(before[y0:y1, x0:x1]).astype(np.float32)
+        v = embed(after[y0:y1, x0:x1]).astype(np.float32)
+        cos = float(v @ ref / (np.linalg.norm(v) * np.linalg.norm(ref) + 1e-8))
+        if cos < min_similarity:
+            log.warning(
+                "identity drift on face at (%d,%d): cos=%.2f < %.2f; reverting",
+                x0,
+                y0,
+                cos,
+                min_similarity,
+            )
+            out[y0:y1, x0:x1] = before[y0:y1, x0:x1]
+    return out
+
 
 # RetinaFace (the detector bundled in FaceRestoreHelper) runs ResNet50 on
 # the FULL input frame. A Real-ESRGAN-upscaled 24 MP RAW lands around
@@ -64,6 +105,8 @@ class CodeFormerModel:
         self._tensor2img: Any = None
         self._helper_cls: Any = None
         self._normalize: Any = None
+        self._arcface: Any = None
+        self._arcface_failed = False
 
     def __enter__(self) -> CodeFormerModel:
         weights = codeformer_weights()
@@ -110,11 +153,57 @@ class CodeFormerModel:
 
     def close(self) -> None:
         self._net = None
+        self._arcface = None
         if self._torch is not None and self._torch.cuda.is_available():
             self._torch.cuda.empty_cache()
         self.available = False
 
-    def apply(self, rgb: Array, *, weight: float = 0.7, **_: object) -> Array:
+    def _ensure_arcface(self) -> bool:
+        """Lazily load the buffalo_l ArcFace recognition net for the identity guard.
+
+        Returns True once the net is usable. On a missing ONNX file or any
+        import/prepare failure it logs a warning once, disables the guard for
+        the rest of this model's life, and returns False.
+        """
+        if self._arcface is not None:
+            return True
+        if self._arcface_failed:
+            return False
+        path = settings.models / "insightface" / "models" / "buffalo_l" / "w600k_r50.onnx"
+        if not path.exists():
+            self._arcface_failed = True
+            log.warning("ArcFace weights missing at %s — identity guard disabled", path)
+            return False
+        try:
+            from insightface.model_zoo import get_model
+
+            rec = get_model(str(path), providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+            rec.prepare(ctx_id=0)
+        except Exception as exc:  # noqa: BLE001 - guard is optional; degrade gracefully
+            self._arcface_failed = True
+            log.warning("ArcFace load failed (%s) — identity guard disabled", exc)
+            return False
+        self._arcface = rec
+        return True
+
+    def _embed(self, crop_rgb: Array) -> Array:
+        """L2-normalised 512-d ArcFace embedding of an 8-bit RGB face crop.
+
+        ``get_feat`` resizes any crop to 112x112 itself and expects BGR.
+        """
+        bgr = self._cv2.cvtColor(crop_rgb, self._cv2.COLOR_RGB2BGR)
+        feat = self._arcface.get_feat([bgr])[0].astype(np.float32)
+        return feat / (float(np.linalg.norm(feat)) + 1e-8)
+
+    def apply(
+        self,
+        rgb: Array,
+        *,
+        weight: float = 0.7,
+        faces: Sequence[Box] = (),
+        min_similarity: float = 0.5,
+        **_: object,
+    ) -> Array:
         if not self.available:
             return rgb
         cv2 = self._cv2
@@ -164,6 +253,10 @@ class CodeFormerModel:
         restored_rgb = cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
         if restored_rgb.shape[:2] != (h0, w0):
             restored_rgb = cv2.resize(restored_rgb, (w0, h0), interpolation=cv2.INTER_LANCZOS4)
+        if faces and self._ensure_arcface():
+            restored_rgb = guard_faces(
+                rgb, restored_rgb, faces, embed=self._embed, min_similarity=min_similarity
+            )
         return restored_rgb
 
 

@@ -189,9 +189,15 @@ def _phase2(items: list[WorkItem]) -> None:
                         s = settings.enhance_ai_scale
                         img = resize_float(img, (round(w * s), round(h * s)))
                         it.ai_scaled = True
+                    params = dict(step.params)
+                    if name == "codeformer_restore":
+                        params["faces"] = scale_boxes(
+                            it.face_boxes, it.native_size, (img.shape[1], img.shape[0])
+                        )
+                        params["min_similarity"] = settings.enhance_face_min_similarity
                     img = apply_ai_delta(
                         img,
-                        partial(model.apply, **step.params),
+                        partial(model.apply, **params),
                         scale=2 if name == "realesrgan_upscale" else 1,
                     )
                     np.save(it.intermediate, img.astype(np.float16))

@@ -214,6 +214,7 @@ The most useful overrides:
 | `RAWCURATOR_ENHANCE_FACE_RESTORE` | `true`        | Skip CodeFormer if false                                                |
 | `RAWCURATOR_ENHANCE_CODEFORMER_W` | `0.85`        | Higher = more faithful to the original skin texture (natural). Lower = stronger restoration (waxy/airbrushed risk). Default leans natural. |
 | `RAWCURATOR_ENHANCE_FACE_RESTORE_MAX_PX` | `300` | Faces whose box is at least this many pixels on the long side and sharp are left alone; smaller or soft faces get CodeFormer. |
+| `RAWCURATOR_ENHANCE_FACE_MIN_SIMILARITY` | `0.5` | ArcFace cosine between a face before and after CodeFormer; below this the original face is pasted back. |
 | `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY` | `true`    | Auto-detects backlit scenes (dense shadows + dense highlights) and lifts the subject while protecting background highlights. Edge-preserving — no HDR halos. |
 | `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT` | `0.4` | `0` disables; `~0.4` is natural; `>0.7` starts looking HDR.            |
 | `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT` | `0.15` | How aggressively the lift rolls off above ~65% luminance.        |

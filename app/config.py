@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     enhance_face_restore: bool = True
     enhance_codeformer_w: float = 0.85  # higher = more faithful skin, less waxy/airbrushed
     enhance_face_restore_max_px: int = 300  # faces >= this (long side) and sharp skip CodeFormer
+    enhance_face_min_similarity: float = (
+        0.5  # ArcFace cos before/after; below -> paste original back
+    )
     enhance_realesrgan_fidelity: float = (
         0.7  # 1.0 = full Real-ESRGAN; ~0.7 softens AI artifacts while keeping most detail recovery
     )
