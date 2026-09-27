@@ -54,9 +54,9 @@ For each batch:
    sharpness, noise) and builds a **per-photo recipe** of classical + AI
    steps tuned to its measured deficits — the recipe is visible in the
    review UI. Each AI step (SCUNet denoise, Real-ESRGAN when enlarging or
-   the source is small, CodeFormer for small/soft faces) sees an 8-bit
-   sRGB copy but is merged back as a *delta* into the float master, so
-   the 16-bit master is never quantised. Every result passes a
+   the source is small, CodeFormer for faces that are small, soft, or in
+   a noisy frame) sees an 8-bit sRGB copy but is merged back as a *delta*
+   into the float master, so the 16-bit master is never quantised. Every result passes a
    verification gate before it is written to `photos/exported/`; for
    `no` photos (`action == "enhance_only"`) the source RAW is deleted
    only after the TIFF is written **and** the verdict is not degraded —

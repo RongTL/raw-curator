@@ -324,8 +324,9 @@ For each photo, enhance does the following:
      **only when the target enlarges the source or the source is
      small** (long edge < `RAWCURATOR_ENHANCE_SR_MIN_LONG_EDGE`);
      CodeFormer (weight `RAWCURATOR_ENHANCE_CODEFORMER_W`, default
-     `0.85`) runs **only on faces that are small or soft**, with an
-     ArcFace identity guard that pastes the original face back if the
+     `0.85`) runs **only on faces that are small, soft, or in a noisy
+     frame**, with an ArcFace identity guard that pastes the original
+     face back if the
      restored one drifts too far
      (`RAWCURATOR_ENHANCE_FACE_MIN_SIMILARITY`). Only one model is
      resident at a time (VRAM is cleared between them), and after the
