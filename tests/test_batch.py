@@ -150,3 +150,46 @@ def test_non_raw_source_is_skipped_with_a_warning(env, caplog: pytest.LogCapture
         summary = batch.run_batch([(jpeg, [])], develop=fake_develop)
     assert summary.skipped == 1
     assert "is not RAW" in caplog.text
+
+
+def test_model_load_failure_fails_only_its_photos(
+    env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tmp_path, fake_develop, _ = env
+
+    class RaisingEnter:
+        def __enter__(self):
+            raise RuntimeError("cuda oom on model load")
+
+        def __exit__(self, *exc: object) -> None: ...
+
+        def apply(self, rgb, **params):
+            return rgb
+
+    monkeypatch.setattr(
+        batch,
+        "AI_MODELS",
+        {
+            "scunet_denoise": lambda: RaisingEnter(),
+            "realesrgan_upscale": lambda: FakeModel("esrgan"),
+            "codeformer_restore": lambda: FakeModel("cf"),
+        },
+    )
+
+    def plan_by_iso(report, **kw):
+        if kw.get("iso") == 100:  # A needs SCUNet (which will fail to load)
+            return _forced_plan(("scunet_denoise", "realesrgan_upscale"))
+        return _forced_plan(("realesrgan_upscale",))  # B needs only ESRGAN
+
+    monkeypatch.setattr(batch, "plan_for", plan_by_iso)
+
+    def cand(name: str, iso: int | None) -> tuple[PhotoCandidate, list]:
+        p = tmp_path / "photos" / "incoming" / name
+        p.write_bytes(b"raw")
+        return PhotoCandidate(name, str(p), "raw", "keep_and_enhance", iso=iso), []
+
+    summary = batch.run_batch([cand("A.CR3", 100), cand("B.CR3", None)], develop=fake_develop)
+    assert (summary.enhanced, summary.failed) == (1, 1)
+    assert (tmp_path / "photos" / "exported" / "B.tif").exists()
+    assert not (tmp_path / "photos" / "exported" / "A.tif").exists()
+    assert not list((tmp_path / "cache" / "enhance").glob("*.npy"))

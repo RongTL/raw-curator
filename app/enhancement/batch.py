@@ -179,7 +179,15 @@ def _phase2(items: list[WorkItem]) -> None:
         if not todo:
             continue
         console.print(f"[cyan]AI step {name}: {len(todo)} photo(s)[/cyan]")
-        with AI_MODELS[name]() as model:
+        try:
+            model_cm = AI_MODELS[name]()
+            model = model_cm.__enter__()
+        except Exception as exc:  # noqa: BLE001 - a model that won't load fails only its photos
+            log.exception("AI model %s failed to load", name)
+            for it in todo:
+                it.failed = f"{name}: model load failed: {exc}"
+            continue
+        try:
             for it in todo:
                 try:
                     step = next(s for s in it.ai_pending if s.name == name)
@@ -204,6 +212,8 @@ def _phase2(items: list[WorkItem]) -> None:
                 except Exception as exc:  # noqa: BLE001 - keep the batch going
                     it.failed = f"{name}: {exc}"
                     log.exception("AI step %s failed for %s", name, it.photo.source_path)
+        finally:
+            model_cm.__exit__(None, None, None)
 
 
 def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
