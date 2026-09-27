@@ -7,7 +7,7 @@ asserts the planner adds (or omits) the corresponding step.
 from __future__ import annotations
 
 from app.enhancement.engine.decision import plan_from_report
-from app.enhancement.engine.plan import QualityReport
+from app.enhancement.engine.plan import FaceInfo, QualityReport
 
 
 def _baseline(**overrides) -> QualityReport:
@@ -45,7 +45,7 @@ def _step_names(plan) -> list[str]:
 
 
 def test_balanced_input_plan_is_minimal() -> None:
-    plan = plan_from_report(_baseline(), has_faces=False, native_long_edge=6000)
+    plan = plan_from_report(_baseline(), native_long_edge=6000)
     names = _step_names(plan)
     assert "realesrgan_upscale" not in names
     assert "tone_map_final" not in names
@@ -120,13 +120,25 @@ def test_blurry_input_triggers_unsharp() -> None:
 
 
 def test_faces_trigger_codeformer() -> None:
-    plan = plan_from_report(_baseline(), has_faces=True)
+    plan = plan_from_report(_baseline(), faces=[FaceInfo((0, 0, 120, 120), 40.0)])
     assert "codeformer_restore" in _step_names(plan)
 
 
 def test_no_faces_no_codeformer() -> None:
-    plan = plan_from_report(_baseline(), has_faces=False)
+    plan = plan_from_report(_baseline())
     assert "codeformer_restore" not in _step_names(plan)
+
+
+def test_sharp_large_faces_are_left_alone() -> None:
+    faces = [FaceInfo((100, 100, 800, 800), lap_var=400.0)]
+    assert "codeformer_restore" not in _step_names(plan_from_report(_baseline(), faces=faces))
+
+
+def test_small_or_soft_faces_get_restored() -> None:
+    small = [FaceInfo((0, 0, 120, 120), lap_var=400.0)]
+    soft = [FaceInfo((0, 0, 900, 900), lap_var=40.0)]
+    assert "codeformer_restore" in _step_names(plan_from_report(_baseline(), faces=small))
+    assert "codeformer_restore" in _step_names(plan_from_report(_baseline(), faces=soft))
 
 
 def test_plan_order_matches_spec_section_7() -> None:
@@ -152,7 +164,7 @@ def test_plan_order_matches_spec_section_7() -> None:
             luma_noise=5.0,
             lap_var=40.0,
         ),
-        has_faces=True,
+        faces=[FaceInfo((0, 0, 120, 120), 40.0)],
     )
     names = _step_names(plan)
 
@@ -177,7 +189,9 @@ def test_denoise_switch_off_skips_scunet_even_when_noisy() -> None:
 
 
 def test_face_restore_switch_off_skips_codeformer_even_with_faces() -> None:
-    plan = plan_from_report(_baseline(), has_faces=True, face_restore=False)
+    plan = plan_from_report(
+        _baseline(), faces=[FaceInfo((0, 0, 120, 120), 40.0)], face_restore=False
+    )
     assert "codeformer_restore" not in _step_names(plan)
 
 

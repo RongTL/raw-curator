@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     enhance_denoise_strength: float = 0.75  # 1.0 = full SCUNet; <1 keeps natural micro-texture
     enhance_face_restore: bool = True
     enhance_codeformer_w: float = 0.85  # higher = more faithful skin, less waxy/airbrushed
+    enhance_face_restore_max_px: int = 300  # faces >= this (long side) and sharp skip CodeFormer
     enhance_realesrgan_fidelity: float = (
         0.7  # 1.0 = full Real-ESRGAN; ~0.7 softens AI artifacts while keeping most detail recovery
     )

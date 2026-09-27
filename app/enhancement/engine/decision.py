@@ -24,7 +24,9 @@ Quality-first defaults (matched to a RTX 2060 6 GB / R3 3100 24 GB box):
 
 from __future__ import annotations
 
-from app.enhancement.engine.plan import EnhancementPlan, QualityReport, StepSpec
+from collections.abc import Sequence
+
+from app.enhancement.engine.plan import EnhancementPlan, FaceInfo, QualityReport, StepSpec
 
 
 def _strength_from_deficit(metric: float, low: float, high: float) -> float:
@@ -35,8 +37,8 @@ def _strength_from_deficit(metric: float, low: float, high: float) -> float:
 
 def plan_from_report(
     report: QualityReport,
-    has_faces: bool = False,
     *,
+    faces: Sequence[FaceInfo] = (),
     denoise: bool = True,
     face_restore: bool = True,
     backlit_recovery: bool = True,
@@ -49,7 +51,9 @@ def plan_from_report(
     enhance_denoise_strength: float = 0.75,
     backlit_shadow_lift: float = 0.4,
     backlit_highlight_protect: float = 0.15,
+    face_restore_max_px: int = 300,
 ) -> EnhancementPlan:
+    has_faces = bool(faces)
     steps: list[StepSpec] = []
 
     # §1 Exposure (also runs the existing backlit detector if bimodal)
@@ -179,12 +183,19 @@ def plan_from_report(
                 reason=reason,
             )
         )
-    if has_faces and face_restore:
+    # Restore only faces that are small, soft, or sitting in noise; a sharp,
+    # large, clean face is left alone so CodeFormer cannot rebuild it worse.
+    degraded_faces = [
+        f
+        for f in faces
+        if max(f.box[2], f.box[3]) < face_restore_max_px or f.lap_var < 100.0 or noisy
+    ]
+    if face_restore and degraded_faces:
         steps.append(
             StepSpec(
                 name="codeformer_restore",
                 params={"weight": enhance_codeformer_w},
-                reason="faces detected",
+                reason=f"{len(degraded_faces)} of {len(faces)} faces small/soft",
             )
         )
     if report.lap_var < 150.0:

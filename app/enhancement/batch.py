@@ -24,7 +24,8 @@ from app.enhancement.develop_full import darktable_cli, read_icc_profile
 from app.enhancement.downsample import resize_float
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
-from app.enhancement.engine.plan import EnhancementPlan, QualityReport, StepSpec
+from app.enhancement.engine.metrics import _luma_u8
+from app.enhancement.engine.plan import EnhancementPlan, FaceInfo, QualityReport, StepSpec
 from app.enhancement.engine.runner import (
     ai_steps,
     apply_ai_delta,
@@ -76,6 +77,7 @@ class WorkItem:
     photo: PhotoCandidate
     face_boxes: list[FaceBox]
     intermediate: Path
+    faces: list[FaceInfo] = field(default_factory=list)
     report: QualityReport | None = None
     plan: EnhancementPlan | None = None
     native_size: tuple[int, int] = (0, 0)
@@ -84,6 +86,24 @@ class WorkItem:
     ai_scaled: bool = False
     failed: str | None = None
     out: Path | None = None
+
+
+def _face_infos(img: Array, boxes: list[FaceBox]) -> list[FaceInfo]:
+    """Per-face sharpness on the developed frame: Laplacian variance of the
+    sRGB-encoded luma of each crop. img is float32 linear RGB in [0, 1]."""
+    import cv2
+
+    h, w = img.shape[:2]
+    faces: list[FaceInfo] = []
+    for x, y, bw, bh in boxes:
+        x0, y0 = max(x, 0), max(y, 0)
+        x1, y1 = min(x + bw, w), min(y + bh, h)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        crop = img[y0:y1, x0:x1]
+        lap = cv2.Laplacian(_luma_u8(crop), ddepth=cv2.CV_32F, ksize=3)
+        faces.append(FaceInfo((x0, y0, x1 - x0, y1 - y0), float(lap.var())))
+    return faces
 
 
 def plan_for(report: QualityReport, *, native_size: tuple[int, int], **kw: Any) -> EnhancementPlan:
@@ -103,6 +123,7 @@ def plan_for(report: QualityReport, *, native_size: tuple[int, int], **kw: Any) 
         native_long_edge=native_long_edge,
         target_scale=target_scale,
         sr_min_long_edge=settings.enhance_sr_min_long_edge,
+        face_restore_max_px=settings.enhance_face_restore_max_px,
         **kw,
     )
 
@@ -135,10 +156,11 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     item.native_size = (w, h)
     size = preview_size(Path(item.photo.preview_path) if item.photo.preview_path else None)
     item.face_boxes = scale_boxes(item.face_boxes, size, (w, h)) if size else []
+    item.faces = _face_infos(img, item.face_boxes)
     item.report = score_report(measure_all(img, face_boxes=item.face_boxes or None))
     item.plan = plan_for(
         item.report,
-        has_faces=bool(item.face_boxes),
+        faces=item.faces,
         iso=item.photo.iso,
         native_size=item.native_size,
     )

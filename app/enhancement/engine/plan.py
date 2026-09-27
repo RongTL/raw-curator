@@ -46,6 +46,18 @@ class StepSpec:
 
 
 @dataclass(frozen=True)
+class FaceInfo:
+    """One detected face, measured on the developed frame.
+
+    box is (x, y, w, h) in current-image pixels; lap_var is the Laplacian
+    variance of the sRGB-encoded luma of the face crop (higher = sharper).
+    """
+
+    box: tuple[int, int, int, int]
+    lap_var: float
+
+
+@dataclass(frozen=True)
 class QualityReport:
     """Measured input quality across the five spec dimensions.
 

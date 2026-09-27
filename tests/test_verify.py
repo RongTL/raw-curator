@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from app.enhancement.engine.decision import plan_from_report
+from app.enhancement.engine.plan import FaceInfo
 from app.enhancement.verify import safe_plan, verify
 from tests.test_enhance_job import _report
 
@@ -34,7 +35,8 @@ def test_collapsed_image_is_degraded_regardless_of_scores() -> None:
 
 def test_safe_plan_keeps_only_tone_steps() -> None:
     plan = plan_from_report(
-        _report(luma_noise=6.0, lap_var=50.0, highlight_clip=0.05), has_faces=True
+        _report(luma_noise=6.0, lap_var=50.0, highlight_clip=0.05),
+        faces=[FaceInfo((0, 0, 120, 120), 40.0)],
     )
     safe = safe_plan(plan)
     names = {s.name for s in safe.steps}
