@@ -28,7 +28,6 @@ import logging
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-import numpy as np
 import tifffile
 from PIL import Image
 from rich.console import Console
@@ -40,15 +39,16 @@ from app.arrays import Array
 from app.config import settings
 from app.db import session_scope
 from app.decision.rules import ENHANCE_ACTIONS
-from app.enhancement.develop_full import darktable_cli
+from app.enhancement.develop_full import darktable_cli, read_icc_profile
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
 from app.enhancement.engine.metrics import as_linear_float01
 from app.enhancement.engine.plan import EnhancementPlan, QualityReport, plan_to_json
 from app.enhancement.engine.runner import run_plan
 from app.enhancement.geometry import scale_boxes
-from app.enhancement.pack_tiff import write_tiff16
+from app.enhancement.pack_tiff import copy_metadata, write_tiff16
 from app.enhancement.sidecar import resolve_xmp
+from app.enhancement.verify import Verdict, safe_plan, verify
 from app.models import Decision, Face, Photo, PhotoQualityReport
 from app.paths import relative_subpath
 from app.workers.gpu_worker import warmup
@@ -128,6 +128,19 @@ def persist_plan(sess: Session, photo_hash: str, plan: EnhancementPlan) -> None:
     row.plan_json = plan_to_json(plan)
 
 
+def persist_verdict(sess: Session, photo_hash: str, verdict: Verdict) -> None:
+    row = sess.get(PhotoQualityReport, photo_hash)
+    if row is None:
+        raise ValueError(f"no quality report for {photo_hash}")
+    row.verify_json = verdict.to_json()
+    row.score_q_after = verdict.q_after
+    row.degraded = verdict.degraded
+
+
+def may_delete_source(photo: PhotoCandidate, out: Path, verdict: Verdict) -> bool:
+    return photo.action == "enhance_only" and out.exists() and not verdict.degraded
+
+
 def _load_linear_float(tiff_path: Path) -> Array:
     """Load darktable's 16-bit linear Rec.2020 TIFF as float32 in [0, 1]."""
     arr = tifffile.imread(str(tiff_path))
@@ -158,6 +171,9 @@ def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | Non
     full_tiff = darktable_cli(
         src, xmp=resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
     )
+    icc = read_icc_profile(full_tiff)
+    if icc is None:
+        log.warning("developed TIFF for %s has no ICC profile; master will be untagged", src.name)
     rgb_f01 = _load_linear_float(full_tiff)
     native_h, native_w = rgb_f01.shape[:2]
 
@@ -193,51 +209,47 @@ def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | Non
         backlit_shadow_lift=settings.enhance_backlit_shadow_lift,
         backlit_highlight_protect=settings.enhance_backlit_highlight_protect,
     )
-    with session_scope() as sess:
-        persist_plan(sess, photo.hash, plan)
     console.print(
         f"[dim]{src.name}[/dim] Q=[cyan]{report.score_q:.1f}[/cyan] -> "
         f"{len(plan.steps)} step(s)"
     )
 
     result_f01 = run_plan(rgb_f01, plan, native_size=(native_w, native_h))
+    after = score_report(measure_all(result_f01, face_boxes=face_boxes or None))
+    verdict = verify(report, after, result_f01)
+    if verdict.degraded:
+        log.warning(
+            "%s degraded (%s); retrying with the safe plan", src.name, ",".join(verdict.reasons)
+        )
+        retry = safe_plan(plan)
+        retry_f01 = run_plan(rgb_f01, retry, native_size=(native_w, native_h))
+        retry_after = score_report(measure_all(retry_f01, face_boxes=face_boxes or None))
+        retry_verdict = verify(report, retry_after, retry_f01)
+        if retry_after.score_q >= after.score_q:
+            result_f01, verdict, plan = retry_f01, retry_verdict, retry
+    with session_scope() as sess:
+        persist_plan(sess, photo.hash, plan)
+        persist_verdict(sess, photo.hash, verdict)
 
     out = settings.photos / "exported" / relative_subpath(src, settings.photos).with_suffix(".tif")
-    write_tiff16((result_f01 * 65535.0 + 0.5).clip(0, 65535).astype(np.uint16), out)
-
+    write_tiff16(result_f01, out, icc=icc)
+    copy_metadata(src, out)
     with contextlib.suppress(OSError):
         full_tiff.unlink()
 
-    # Sanity-check the output before deleting the source RAW on the enhance_only
-    # path. A May 2026 incident destroyed 10 originals because a buggy classical
-    # step collapsed mid-toned inputs to mean ~0.05; the deletion guard only
-    # checked that the file existed, not that it was a plausible image.
-    if photo.action == "enhance_only" and out.exists():
-        input_mean = float(rgb_f01.mean())
-        output_mean = float(result_f01.mean())
-        output_std = float(result_f01.std())
-        ratio = output_mean / max(input_mean, 1e-6)
-        looks_broken = (
-            output_mean < 0.05 or output_std < 0.02 or (input_mean > 0.10 and ratio < 0.5)
+    if may_delete_source(photo, out, verdict):
+        try:
+            src.unlink()
+            log.info("deleted no-RAW source after verified enhance: %s", src)
+        except OSError as exc:
+            log.warning("failed to delete no-RAW source %s: %s", src, exc)
+    elif photo.action == "enhance_only" and verdict.degraded:
+        log.error(
+            "KEEPING source RAW for %s: result degraded (%s). Inspect %s.",
+            src.name,
+            ",".join(verdict.reasons),
+            out,
         )
-        if looks_broken:
-            log.error(
-                "REFUSING to delete source RAW for %s: enhanced output looks broken "
-                "(input_mean=%.3f, output_mean=%.3f, output_std=%.3f, ratio=%.2f). "
-                "Inspect %s and re-run enhancement after fixing.",
-                src.name,
-                input_mean,
-                output_mean,
-                output_std,
-                ratio,
-                out,
-            )
-        else:
-            try:
-                src.unlink()
-                log.info("deleted no-RAW source after enhance: %s", src)
-            except OSError as exc:
-                log.warning("failed to delete no-RAW source %s: %s", src, exc)
     return out
 
 

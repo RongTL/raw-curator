@@ -120,3 +120,20 @@ def test_preview_size_missing_file_means_no_faces(tmp_path: Path) -> None:
     from app.enhancement.enhance_job import preview_size
 
     assert preview_size(tmp_path / "nope.jpg") is None
+
+
+def test_degraded_result_never_deletes_the_source(tmp_path: Path) -> None:
+    from app.enhancement import enhance_job
+    from app.enhancement.verify import Verdict
+
+    src = tmp_path / "IMG.CR3"
+    src.write_bytes(b"raw")
+    out = tmp_path / "IMG.tif"
+    out.write_bytes(b"tif")
+    photo = enhance_job.PhotoCandidate("h", str(src), "raw", "enhance_only")
+    assert (
+        enhance_job.may_delete_source(photo, out, Verdict(True, ("q_drop",), 80.0, 70.0)) is False
+    )
+    assert enhance_job.may_delete_source(photo, out, Verdict(False, (), 80.0, 82.0)) is True
+    keep = enhance_job.PhotoCandidate("h", str(src), "raw", "keep_and_enhance")
+    assert enhance_job.may_delete_source(keep, out, Verdict(False, (), 80.0, 82.0)) is False
