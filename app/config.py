@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"  # root logger level for every raw-curator process
 
+    # darktable pixel workflow for the develop step; Task 15 switches to sigmoid.
+    darktable_workflow: str = "scene-referred (filmic)"
+
     @property
     def db_path(self) -> Path:
         return self.cache / "session.db"
