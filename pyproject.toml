@@ -75,7 +75,12 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
-ignore = ["E501"]
+# N812: `import torch.nn.functional as F` is the universal torch idiom.
+ignore = ["E501", "N812"]
+
+[tool.ruff.lint.per-file-ignores]
+# Vendored upstream architecture (github.com/cszn/SCUNet); kept diff-able.
+"app/enhancement/_scunet_arch.py" = ["N806", "B006"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -99,9 +99,7 @@ def _submit_progress() -> tuple[int, int]:
         )
         decided = _count(
             sess,
-            select(func.count())
-            .select_from(Decision)
-            .where(Decision.selected != "undecided"),
+            select(func.count()).select_from(Decision).where(Decision.selected != "undecided"),
         )
     return applied, decided
 
@@ -166,9 +164,7 @@ def batch_summary() -> dict[str, int]:
             photos = _count(sess, select(func.count()).select_from(Photo))
             decided = _count(
                 sess,
-                select(func.count())
-                .select_from(Decision)
-                .where(Decision.selected != "undecided"),
+                select(func.count()).select_from(Decision).where(Decision.selected != "undecided"),
             )
     except OperationalError as exc:
         _warn_no_schema_once(exc)

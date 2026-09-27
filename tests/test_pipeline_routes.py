@@ -153,9 +153,7 @@ def test_reset_in_progress_blocks_run(client: TestClient, monkeypatch) -> None:
     codes: dict[str, int] = {}
 
     def do_reset() -> None:
-        codes["reset"] = client.post(
-            "/api/pipeline/reset", json={"confirm": "RESET"}
-        ).status_code
+        codes["reset"] = client.post("/api/pipeline/reset", json={"confirm": "RESET"}).status_code
 
     t = threading.Thread(target=do_reset)
     t.start()

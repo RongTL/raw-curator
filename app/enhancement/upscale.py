@@ -69,9 +69,12 @@ def realesrgan_x2(
     lanczos_out = _lanczos_x2(rgb)
     if lanczos_out.shape != ai_out.shape:
         from PIL import Image
+
         h, w = ai_out.shape[:2]
         lanczos_out = np.asarray(
             Image.fromarray(lanczos_out).resize((w, h), Image.Resampling.LANCZOS)
         )
-    blended = ai_out.astype(np.float32) * fidelity + lanczos_out.astype(np.float32) * (1.0 - fidelity)
+    blended = ai_out.astype(np.float32) * fidelity + lanczos_out.astype(np.float32) * (
+        1.0 - fidelity
+    )
     return np.clip(blended, 0.0, 255.0).astype(np.uint8)

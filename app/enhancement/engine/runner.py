@@ -60,8 +60,13 @@ def _from_u8(rgb_u8: np.ndarray) -> np.ndarray:
 
 
 _PRE_AI = {
-    "exposure_gamma", "shadow_lift", "highlight_recover", "backlit_recover",
-    "highlight_rolloff", "white_balance", "saturation_adjust",
+    "exposure_gamma",
+    "shadow_lift",
+    "highlight_recover",
+    "backlit_recover",
+    "highlight_rolloff",
+    "white_balance",
+    "saturation_adjust",
 }
 _AI = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
 _POST_AI = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}

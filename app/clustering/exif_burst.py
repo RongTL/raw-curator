@@ -18,10 +18,7 @@ def burst_groups(photos: Iterable[Photo], window_seconds: int = 2) -> list[list[
     window = timedelta(seconds=window_seconds)
     for p in with_ts[1:]:
         last = current[-1]
-        if (
-            p.camera_body == last.camera_body
-            and (p.captured_at - last.captured_at) <= window
-        ):
+        if p.camera_body == last.camera_body and (p.captured_at - last.captured_at) <= window:
             current.append(p)
         else:
             if len(current) > 1:

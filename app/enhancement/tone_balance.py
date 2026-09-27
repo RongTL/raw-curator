@@ -98,9 +98,7 @@ def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
     try:
         import cv2  # type: ignore
     except ImportError as exc:
-        log.warning(
-            "cv2 unavailable (%s) — backlit recovery requires opencv-python; skipping", exc
-        )
+        log.warning("cv2 unavailable (%s) — backlit recovery requires opencv-python; skipping", exc)
         return None
 
     h, w = luma01.shape
@@ -125,9 +123,7 @@ def _lift_mask(local_luma: np.ndarray) -> np.ndarray:
 
 
 def _highlight_protect(local_luma: np.ndarray, strength: float) -> np.ndarray:
-    ramp = np.clip(
-        (local_luma - _HIGHLIGHT_PROTECT_KNEE) / _HIGHLIGHT_PROTECT_RANGE, 0.0, 1.0
-    )
+    ramp = np.clip((local_luma - _HIGHLIGHT_PROTECT_KNEE) / _HIGHLIGHT_PROTECT_RANGE, 0.0, 1.0)
     return 1.0 - ramp * np.clip(strength, 0.0, 1.0)
 
 
@@ -145,9 +141,7 @@ def recover_backlit(
     if shadow_lift <= 0.0:
         return rgb
     if rgb.dtype != np.uint8 or rgb.ndim != 3 or rgb.shape[2] != 3:
-        raise ValueError(
-            f"recover_backlit expects HxWx3 uint8 RGB, got {rgb.dtype} {rgb.shape}"
-        )
+        raise ValueError(f"recover_backlit expects HxWx3 uint8 RGB, got {rgb.dtype} {rgb.shape}")
 
     luma = _rgb_to_luma(rgb)
     if not force and not is_backlit(luma):

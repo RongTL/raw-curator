@@ -28,10 +28,10 @@ def apply_clahe(
 
     f = np.clip(rgb, 0.0, 1.0).astype(np.float32)
     lab = cv2.cvtColor(f, cv2.COLOR_RGB2LAB)
-    L = lab[..., 0]
-    L_u16 = np.clip(L * 655.35, 0, 65535).astype(np.uint16)
+    lum = lab[..., 0]
+    lum_u16 = np.clip(lum * 655.35, 0, 65535).astype(np.uint16)
     clahe = cv2.createCLAHE(clipLimit=float(clip_limit), tileGridSize=tile_grid)
-    L_eq = clahe.apply(L_u16).astype(np.float32) / 655.35
-    lab[..., 0] = L_eq
+    lum_eq = clahe.apply(lum_u16).astype(np.float32) / 655.35
+    lab[..., 0] = lum_eq
     out = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
     return np.clip(out, 0.0, 1.0).astype(np.float32)

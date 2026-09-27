@@ -65,9 +65,9 @@ def test_global_compress_does_not_collapse_narrow_plateau() -> None:
     # Compression legitimately darkens midtones (0.80 -> ~0.74 at strength=0.5).
     # The pre-fix bug would have collapsed the plateau to mean ~0.04 — a 0.76
     # shift — so a 0.10 tolerance still catches any regression of that class.
-    assert abs(float(out.mean()) - float(plateau.mean())) < 0.10, (
-        f"mean shifted from {float(plateau.mean()):.3f} to {float(out.mean()):.3f}"
-    )
+    assert (
+        abs(float(out.mean()) - float(plateau.mean())) < 0.10
+    ), f"mean shifted from {float(plateau.mean()):.3f} to {float(out.mean()):.3f}"
     assert float(out.std()) < 0.05, "narrow input must produce a narrow output"
 
 

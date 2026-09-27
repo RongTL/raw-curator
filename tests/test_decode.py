@@ -88,7 +88,7 @@ def test_all_supported_exts_is_union() -> None:
 def test_extension_sets_pairwise_disjoint() -> None:
     sets = [decode.RAW_EXTS, decode.JPEG_EXTS, decode.TIFF_EXTS, decode.HEIC_EXTS, decode.PNG_EXTS]
     for i, a in enumerate(sets):
-        for b in sets[i + 1:]:
+        for b in sets[i + 1 :]:
             assert a.isdisjoint(b), f"{a} ∩ {b} non-empty"
 
 

@@ -240,9 +240,7 @@ class JobRunner:
             self._dropped += 1
         self._tail.append(piece.decode("utf-8", errors="replace"))
 
-    def _finish(
-        self, record: JobRecord | None, status: JobStatus, exit_code: int | None
-    ) -> None:
+    def _finish(self, record: JobRecord | None, status: JobStatus, exit_code: int | None) -> None:
         if record is None or record is not self._current or record.status is not JobStatus.RUNNING:
             return
         record.status = status

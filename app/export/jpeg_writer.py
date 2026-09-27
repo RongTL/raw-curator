@@ -97,7 +97,8 @@ def _copy_exif(source: Path, dest: Path) -> None:
             [
                 "exiftool",
                 "-overwrite_original",
-                "-TagsFromFile", str(source),
+                "-TagsFromFile",
+                str(source),
                 "-EXIF:all",
                 "--Orientation",
                 "-XMP:all",
@@ -187,4 +188,6 @@ def is_convertible(path: Path) -> bool:
     ext = path.suffix.lower()
     if ext in HEIC_EXTENSIONS and not heic_available():
         return False
-    return ext in (RAW_EXTENSIONS | TIFF_EXTENSIONS | JPEG_EXTENSIONS | HEIC_EXTENSIONS | PNG_EXTENSIONS)
+    return ext in (
+        RAW_EXTENSIONS | TIFF_EXTENSIONS | JPEG_EXTENSIONS | HEIC_EXTENSIONS | PNG_EXTENSIONS
+    )

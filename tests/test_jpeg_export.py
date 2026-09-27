@@ -127,9 +127,7 @@ def test_list_candidates_partitions_by_source(
     assert jpeg_job._list_candidates("all") == [raw, jpg, tif]
 
 
-def test_dest_for_preserves_subfolders(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dest_for_preserves_subfolders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jpeg_job.settings, "photos", tmp_path)
     monkeypatch.setattr(jpeg_job.settings, "jpeg_subdir", "jpeg")
     raw = tmp_path / "library" / "2025" / "wedding" / "IMG_0001.CR3"
@@ -154,9 +152,7 @@ def test_run_jpeg_export_rejects_invalid_source() -> None:
         jpeg_job.run_jpeg_export(source="bogus")
 
 
-def test_run_jpeg_export_handles_empty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_run_jpeg_export_handles_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jpeg_job.settings, "photos", tmp_path)
     jpeg_job.run_jpeg_export(source="all")
     assert not (tmp_path / "jpeg").exists() or not any((tmp_path / "jpeg").iterdir())

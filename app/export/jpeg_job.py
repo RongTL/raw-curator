@@ -52,16 +52,12 @@ def _list_candidates(source: str) -> list[Path]:
     if source in {"library", "all"}:
         lib = photos / "library"
         if lib.is_dir():
-            items.extend(
-                p for p in sorted(lib.rglob("*")) if p.is_file() and is_convertible(p)
-            )
+            items.extend(p for p in sorted(lib.rglob("*")) if p.is_file() and is_convertible(p))
     if source in {"exported", "all"}:
         exp = photos / "exported"
         if exp.is_dir():
             items.extend(
-                p
-                for p in sorted(exp.rglob("*"))
-                if p.is_file() and p.suffix.lower() in TIFF_EXTS
+                p for p in sorted(exp.rglob("*")) if p.is_file() and p.suffix.lower() in TIFF_EXTS
             )
     return items
 

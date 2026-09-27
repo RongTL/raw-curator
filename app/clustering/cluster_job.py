@@ -53,9 +53,7 @@ def run_clustering() -> None:
             _create_cluster(sess, "burst", group)
 
         # CLIP HDBSCAN over photos not already clustered.
-        rows = sess.execute(
-            select(PhotoEmbedding.photo_hash, PhotoEmbedding.vec)
-        ).all()
+        rows = sess.execute(select(PhotoEmbedding.photo_hash, PhotoEmbedding.vec)).all()
         if not rows:
             console.print("[yellow]No CLIP embeddings — skipping HDBSCAN.[/yellow]")
             return

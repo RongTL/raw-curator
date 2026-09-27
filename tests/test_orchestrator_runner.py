@@ -106,6 +106,7 @@ async def test_sigterm_ignoring_child_is_killed(tmp_path: Path, monkeypatch) -> 
     code = "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)"
     await runner.start("enhance", (code,))
     import asyncio as _a
+
     await _a.sleep(0.3)  # let the child install its handler
     assert await runner.cancel() is True
     record = await runner.wait()

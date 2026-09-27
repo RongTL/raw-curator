@@ -71,9 +71,7 @@ def export_jpeg(
         None,
         help="Resize so the long edge equals this many pixels. 0 = native resolution.",
     ),
-    overwrite: bool = typer.Option(
-        False, help="Re-encode files whose JPEG already exists."
-    ),
+    overwrite: bool = typer.Option(False, help="Re-encode files whose JPEG already exists."),
 ) -> None:
     """Phase 9 (optional): convert library RAWs and exported TIFFs to share-ready JPEGs."""
     from app.export.jpeg_job import run_jpeg_export

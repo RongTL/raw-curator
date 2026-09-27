@@ -38,9 +38,7 @@ app.include_router(system.router, prefix="/api/system", tags=["system"])
 
 # Raw preview/thumb files live in the bind-mounted cache dir. check_dir=False:
 # the dir exists in-container but not necessarily at import time elsewhere.
-app.mount(
-    "/cache", StaticFiles(directory=str(settings.cache), check_dir=False), name="cache"
-)
+app.mount("/cache", StaticFiles(directory=str(settings.cache), check_dir=False), name="cache")
 
 # Static SPA assets bundled in the image.
 _STATIC_DIR = Path(__file__).resolve().parent / "static"

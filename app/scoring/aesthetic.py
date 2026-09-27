@@ -34,9 +34,8 @@ class AestheticPredictor:
 
     @torch.inference_mode()
     def score_batch(self, images: Iterable[Image.Image]) -> list[float]:
-        pixel_values = (
-            self.processor(images=list(images), return_tensors="pt")
-            .pixel_values.to(self.device, dtype=self.dtype)
+        pixel_values = self.processor(images=list(images), return_tensors="pt").pixel_values.to(
+            self.device, dtype=self.dtype
         )
         out = self.model(pixel_values).logits.squeeze(-1)
         return out.float().detach().cpu().tolist()

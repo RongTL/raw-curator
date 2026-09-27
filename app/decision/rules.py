@@ -17,8 +17,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Rule:
-    selected: str           # "yes" | "no"
-    action: str             # "keep_and_enhance" | "enhance_only"
+    selected: str  # "yes" | "no"
+    action: str  # "keep_and_enhance" | "enhance_only"
     library_subdir: str | None  # where the RAW lands at submit; None means stay-in-place
     delete_source_after_enhance: bool  # for "no", remove the RAW once the TIFF is written
 

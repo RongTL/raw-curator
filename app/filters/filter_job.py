@@ -54,9 +54,7 @@ def _process(hash_and_thumb: tuple[str, str]) -> FilterResult | None:
 
 def run_filters() -> None:
     with session_scope() as sess:
-        rows = sess.execute(
-            select(Photo.hash, Photo.thumb_path).where(Photo.phash.is_(None))
-        ).all()
+        rows = sess.execute(select(Photo.hash, Photo.thumb_path).where(Photo.phash.is_(None))).all()
     candidates = [(h, t) for h, t in rows if t and Path(t).exists()]
     if not candidates:
         console.print("[yellow]Nothing to filter (all photos already have phash).[/yellow]")

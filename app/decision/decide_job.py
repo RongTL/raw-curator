@@ -34,14 +34,11 @@ def apply_decisions() -> None:
     updates: list[dict] = []
 
     with session_scope() as sess:
-        rows = (
-            sess.execute(
-                select(Photo, Decision)
-                .join(Decision, Photo.hash == Decision.photo_hash)
-                .where(Decision.applied == 0)
-            )
-            .all()
-        )
+        rows = sess.execute(
+            select(Photo, Decision)
+            .join(Decision, Photo.hash == Decision.photo_hash)
+            .where(Decision.applied == 0)
+        ).all()
         if not rows:
             console.print("[yellow]No pending decisions.[/yellow]")
             return
@@ -58,11 +55,7 @@ def apply_decisions() -> None:
 
             new_source_path = str(src)
             if rule.library_subdir is not None:
-                dst = (
-                    settings.photos
-                    / rule.library_subdir
-                    / relative_subpath(src, settings.photos)
-                )
+                dst = settings.photos / rule.library_subdir / relative_subpath(src, settings.photos)
                 moves.append(Move(src=src, dst=dst))
                 new_source_path = str(dst)
 

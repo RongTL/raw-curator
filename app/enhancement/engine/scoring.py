@@ -15,9 +15,9 @@ from __future__ import annotations
 from app.enhancement.engine.plan import QualityReport
 
 # §1.4 exposure-score weights for clipping/midtone penalties.
-_W_SHADOW = 1500.0    # 1% clip -> -15
+_W_SHADOW = 1500.0  # 1% clip -> -15
 _W_HIGHLIGHT = 1500.0
-_W_MIDTONE = 30.0     # deviation in [0,1] -> up to -30
+_W_MIDTONE = 30.0  # deviation in [0,1] -> up to -30
 
 
 def _score_exposure(m: dict) -> float:

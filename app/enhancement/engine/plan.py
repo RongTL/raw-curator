@@ -18,22 +18,22 @@ from typing import Any, Literal
 
 StepName = Literal[
     # Layer 1 — objective corrections (spec §1.5, §2.4, §3, §5)
-    "exposure_gamma",         # gamma curve, params: gain (+ brightens, - darkens)
-    "shadow_lift",            # luminance-masked shadow lift, params: amount
-    "highlight_recover",      # roll off highlights above knee, params: amount, knee
-    "backlit_recover",        # bimodal-histogram bilateral lift (existing module)
-    "clahe_local_contrast",   # CLAHE in LAB-L, params: clip_limit, tile_grid
-    "highlight_rolloff",      # global filmic-style compression on high DR
-    "white_balance",          # gray-world correction, params: target_rg, target_bg
-    "saturation_adjust",      # HSV saturation scale with skin protection
+    "exposure_gamma",  # gamma curve, params: gain (+ brightens, - darkens)
+    "shadow_lift",  # luminance-masked shadow lift, params: amount
+    "highlight_recover",  # roll off highlights above knee, params: amount, knee
+    "backlit_recover",  # bimodal-histogram bilateral lift (existing module)
+    "clahe_local_contrast",  # CLAHE in LAB-L, params: clip_limit, tile_grid
+    "highlight_rolloff",  # global filmic-style compression on high DR
+    "white_balance",  # gray-world correction, params: target_rg, target_bg
+    "saturation_adjust",  # HSV saturation scale with skin protection
     # AI primitives (spec §5 noise / §4 sharpness)
-    "scunet_denoise",         # params: strength
-    "realesrgan_upscale",     # params: fidelity (blend with Lanczos)
-    "codeformer_restore",     # params: weight; only when faces present
+    "scunet_denoise",  # params: strength
+    "realesrgan_upscale",  # params: fidelity (blend with Lanczos)
+    "codeformer_restore",  # params: weight; only when faces present
     # Layer 1 — sharpening (spec §4)
-    "unsharp_mask",           # luminance unsharp, params: amount, radius, threshold
+    "unsharp_mask",  # luminance unsharp, params: amount, radius, threshold
     # Layer 1 — final pass (spec §7 last step)
-    "tone_map_final",         # filmic curve, params: shoulder, toe
+    "tone_map_final",  # filmic curve, params: shoulder, toe
 ]
 
 
@@ -53,31 +53,31 @@ class QualityReport:
     """
 
     # §1 Exposure
-    mean_luma: float           # 0..255 (after sRGB encode for histogram)
-    shadow_clip: float         # fraction in [0, 5]
-    highlight_clip: float      # fraction in [250, 255]
-    midtone_ratio: float       # fraction in [64, 192]
-    midtone_deviation: float   # 0..1, distance from center of 50%-75% band
+    mean_luma: float  # 0..255 (after sRGB encode for histogram)
+    shadow_clip: float  # fraction in [0, 5]
+    highlight_clip: float  # fraction in [250, 255]
+    midtone_ratio: float  # fraction in [64, 192]
+    midtone_deviation: float  # 0..1, distance from center of 50%-75% band
 
     # §2 Dynamic Range
-    dr_p95_p5: float           # 0..255
-    local_dr_mean: float       # 0..255, mean over 16x16 blocks
+    dr_p95_p5: float  # 0..255
+    local_dr_mean: float  # 0..255, mean over 16x16 blocks
 
     # §3 Color
     rg_ratio: float
     bg_ratio: float
-    avg_saturation: float      # HSV S, mean
-    oversat_ratio: float       # fraction with S > 0.85
-    skin_hue_var: float | None # YCbCr hue variance over face crops; None if no faces
+    avg_saturation: float  # HSV S, mean
+    oversat_ratio: float  # fraction with S > 0.85
+    skin_hue_var: float | None  # YCbCr hue variance over face crops; None if no faces
 
     # §4 Sharpness
-    lap_var: float             # Laplacian variance (8-bit luma)
-    edge_density: float        # Canny edge pixel ratio
-    hf_energy: float           # mean of |FFT| outside the center quarter
+    lap_var: float  # Laplacian variance (8-bit luma)
+    edge_density: float  # Canny edge pixel ratio
+    hf_energy: float  # mean of |FFT| outside the center quarter
 
     # §5 Noise
-    luma_noise: float          # σ of L flat patches, 8-bit scale
-    chroma_noise: float        # σ of (a, b) in LAB
+    luma_noise: float  # σ of L flat patches, 8-bit scale
+    chroma_noise: float  # σ of (a, b) in LAB
 
     # Sub-scores (0..100, §1.4 / §6)
     score_exposure: float
@@ -85,7 +85,7 @@ class QualityReport:
     score_color: float
     score_sharpness: float
     score_noise: float
-    score_q: float             # weighted composite
+    score_q: float  # weighted composite
 
 
 @dataclass(frozen=True)

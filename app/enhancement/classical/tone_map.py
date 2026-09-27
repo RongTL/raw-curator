@@ -31,7 +31,7 @@ def filmic_tone_map(
     f_shouldered = np.where(f > s, s + shoulder_term, f)
 
     if t > 0.0:
-        toe_lift = t * np.exp(-(f_shouldered / 0.08) ** 2)
+        toe_lift = t * np.exp(-((f_shouldered / 0.08) ** 2))
         f_shouldered = f_shouldered + toe_lift
 
     return np.clip(f_shouldered, 0.0, 1.0).astype(np.float32)

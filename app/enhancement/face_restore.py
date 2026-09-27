@@ -105,7 +105,5 @@ def codeformer_restore(rgb: np.ndarray, faces, weight: float = 0.7) -> np.ndarra
 
     restored_rgb = cv2.cvtColor(restored_bgr, cv2.COLOR_BGR2RGB)
     if restored_rgb.shape[:2] != (h0, w0):
-        restored_rgb = cv2.resize(
-            restored_rgb, (w0, h0), interpolation=cv2.INTER_LANCZOS4
-        )
+        restored_rgb = cv2.resize(restored_rgb, (w0, h0), interpolation=cv2.INTER_LANCZOS4)
     return restored_rgb

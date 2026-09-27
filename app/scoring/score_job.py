@@ -30,9 +30,7 @@ console = Console()
 def _photos_missing(column: str) -> list[tuple[str, str]]:
     col = getattr(Photo, column)
     with session_scope() as sess:
-        rows = sess.execute(
-            select(Photo.hash, Photo.preview_path).where(col.is_(None))
-        ).all()
+        rows = sess.execute(select(Photo.hash, Photo.preview_path).where(col.is_(None))).all()
     return [(h, p) for h, p in rows if p and Path(p).exists()]
 
 
@@ -160,7 +158,10 @@ def _stage_faces(items):
                     face_rows.append(
                         Face(
                             photo_hash=digest,
-                            bbox_x=x, bbox_y=y, bbox_w=w, bbox_h=h,
+                            bbox_x=x,
+                            bbox_y=y,
+                            bbox_w=w,
+                            bbox_h=h,
                             det_score=det.det_score,
                             embedding=det.embedding.tobytes(),
                         )

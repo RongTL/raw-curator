@@ -38,8 +38,8 @@ def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
 def shadow_lift(rgb: np.ndarray, amount: float = 0.35) -> np.ndarray:
     if amount <= 0.0:
         return rgb
-    L = _luma(rgb)
-    mask = np.exp(-((L - 0.18) ** 2) / (2.0 * 0.18 ** 2)).astype(np.float32)
+    lum = _luma(rgb)
+    mask = np.exp(-((lum - 0.18) ** 2) / (2.0 * 0.18**2)).astype(np.float32)
     k = float(amount) * mask
     boosted = np.power(np.clip(rgb, 1e-6, 1.0), 1.0 / (1.0 + k[..., None]))
     return boosted.astype(np.float32)

@@ -125,9 +125,7 @@ def logs(after: int = 0) -> dict[str, Any]:
 async def reset(req: ResetRequest) -> dict[str, bool]:
     global _resetting
     if req.confirm != RESET_CONFIRM_TOKEN:
-        raise HTTPException(
-            status_code=422, detail=f'confirm must be "{RESET_CONFIRM_TOKEN}"'
-        )
+        raise HTTPException(status_code=422, detail=f'confirm must be "{RESET_CONFIRM_TOKEN}"')
     if _resetting:
         raise HTTPException(status_code=409, detail="reset already in progress")
     active_leg = get_autorun().active_leg

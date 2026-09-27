@@ -22,19 +22,19 @@ _SKIN_CR_HI = 173.0 / 255.0
 
 
 def _rgb_to_ycbcr(rgb: np.ndarray) -> np.ndarray:
-    R, G, B = rgb[..., 0], rgb[..., 1], rgb[..., 2]
-    Y = 0.299 * R + 0.587 * G + 0.114 * B
-    Cb = -0.168736 * R - 0.331264 * G + 0.5 * B + 0.5
-    Cr = 0.5 * R - 0.418688 * G - 0.081312 * B + 0.5
-    return np.stack([Y, Cb, Cr], axis=-1)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+    cb = -0.168736 * r - 0.331264 * g + 0.5 * b + 0.5
+    cr = 0.5 * r - 0.418688 * g - 0.081312 * b + 0.5
+    return np.stack([y, cb, cr], axis=-1)
 
 
 def _skin_mask(rgb: np.ndarray) -> np.ndarray:
     ycbcr = _rgb_to_ycbcr(rgb)
-    Cb = ycbcr[..., 1]
-    Cr = ycbcr[..., 2]
-    in_cb = ((Cb >= _SKIN_CB_LO) & (Cb <= _SKIN_CB_HI)).astype(np.float32)
-    in_cr = ((Cr >= _SKIN_CR_LO) & (Cr <= _SKIN_CR_HI)).astype(np.float32)
+    cb = ycbcr[..., 1]
+    cr = ycbcr[..., 2]
+    in_cb = ((cb >= _SKIN_CB_LO) & (cb <= _SKIN_CB_HI)).astype(np.float32)
+    in_cr = ((cr >= _SKIN_CR_LO) & (cr <= _SKIN_CR_HI)).astype(np.float32)
     return in_cb * in_cr
 
 
@@ -46,12 +46,12 @@ def adjust_saturation(
     """Scale saturation by `factor` around luma; 1.0 is identity."""
     if abs(factor - 1.0) < 1e-4:
         return rgb
-    L = (_LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2])[..., None]
+    lum = (_LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2])[..., None]
     scale = float(factor)
     if protect_skin:
         m = _skin_mask(rgb)[..., None]
         scale_arr = 1.0 * m + scale * (1.0 - m)
-        out = L + (rgb - L) * scale_arr
+        out = lum + (rgb - lum) * scale_arr
     else:
-        out = L + (rgb - L) * scale
+        out = lum + (rgb - lum) * scale
     return np.clip(out, 0.0, 1.0).astype(np.float32)

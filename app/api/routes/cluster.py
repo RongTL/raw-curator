@@ -45,9 +45,9 @@ def list_clusters() -> list[dict]:
     """Every cluster + a synthetic 'unclustered' bucket for photos with no cluster_id."""
     out: list[dict] = []
     with session_scope() as sess:
-        clusters = sess.execute(
-            select(Cluster).order_by(Cluster.size.desc(), Cluster.id)
-        ).scalars().all()
+        clusters = (
+            sess.execute(select(Cluster).order_by(Cluster.size.desc(), Cluster.id)).scalars().all()
+        )
         for c in clusters:
             rows = sess.execute(
                 select(ClusterMember, Photo, Decision)
@@ -91,11 +91,15 @@ def get_cluster(cluster_id: int) -> dict:
         cluster = sess.get(Cluster, cluster_id)
         if not cluster:
             raise HTTPException(status_code=404, detail="cluster not found")
-        members = sess.execute(
-            select(ClusterMember).where(ClusterMember.cluster_id == cluster_id).order_by(
-                ClusterMember.rank
+        members = (
+            sess.execute(
+                select(ClusterMember)
+                .where(ClusterMember.cluster_id == cluster_id)
+                .order_by(ClusterMember.rank)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return {
             "id": cluster.id,
             "kind": cluster.kind,

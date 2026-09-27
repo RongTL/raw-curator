@@ -145,9 +145,7 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
         return None
     file_kind = photo.get("file_kind")
     if file_kind is not None and file_kind != "raw":
-        log.warning(
-            "skipping enhance for non-RAW source (kind=%s): %s", file_kind, src.name
-        )
+        log.warning("skipping enhance for non-RAW source (kind=%s): %s", file_kind, src.name)
         return None
 
     full_tiff = darktable_cli(src, xmp=_xmp_for(photo["source_path"]))
@@ -184,11 +182,7 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
 
     result_f01 = run_plan(rgb_f01, plan, native_size=(native_w, native_h))
 
-    out = (
-        settings.photos
-        / "exported"
-        / relative_subpath(src, settings.photos).with_suffix(".tif")
-    )
+    out = settings.photos / "exported" / relative_subpath(src, settings.photos).with_suffix(".tif")
     # write_tiff16 expects uint8 currently; the existing wrapper handles conversion.
     write_tiff16((result_f01 * 65535.0 + 0.5).clip(0, 65535).astype(np.uint16), out)
 
@@ -205,16 +199,19 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
         output_std = float(result_f01.std())
         ratio = output_mean / max(input_mean, 1e-6)
         looks_broken = (
-            output_mean < 0.05
-            or output_std < 0.02
-            or (input_mean > 0.10 and ratio < 0.5)
+            output_mean < 0.05 or output_std < 0.02 or (input_mean > 0.10 and ratio < 0.5)
         )
         if looks_broken:
             log.error(
                 "REFUSING to delete source RAW for %s: enhanced output looks broken "
                 "(input_mean=%.3f, output_mean=%.3f, output_std=%.3f, ratio=%.2f). "
                 "Inspect %s and re-run enhancement after fixing.",
-                src.name, input_mean, output_mean, output_std, ratio, out,
+                src.name,
+                input_mean,
+                output_mean,
+                output_std,
+                ratio,
+                out,
             )
         else:
             try:
@@ -244,6 +241,4 @@ def run_enhancement() -> None:
             else:
                 skipped += 1
             progress.advance(task)
-    console.print(
-        f"[green]Enhancement complete:[/green] enhanced={enhanced} skipped={skipped}"
-    )
+    console.print(f"[green]Enhancement complete:[/green] enhanced={enhanced} skipped={skipped}")
