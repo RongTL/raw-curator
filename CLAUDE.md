@@ -128,3 +128,4 @@ Both use `network_mode: host` to dodge a rootless-podman 5.x netns cleanup bug (
 - Enhancement steps explicitly call `torch.cuda.empty_cache()` between stages (`_free_gpu` in `enhance_job.py`). When adding new GPU work, follow the same pattern — the 6 GB budget assumes only one model is resident at a time.
 - File moves from `submit` and outputs from `enhance`/`export-jpeg` all go through helpers in `app/decision/executor.py`, `app/enhancement/pack_tiff.py`, `app/export/jpeg_writer.py`. Don't write image bytes directly from job files.
 - New non-RAW input formats: update `app/ingest/decode.py` and audit every enhancement/export step's `file_kind` branching before assuming `rawpy` can open it.
+- `tests/test_engine_corpus.py` asserts planner decisions on real frames in `tests/data/corpus/` (`real_raw`); look-changing changes ship with a sheet from `scripts/contact_sheet.py` reviewed by the owner.
