@@ -10,7 +10,7 @@ from PIL import Image
 
 class AestheticPredictor:
     def __init__(self, device: str = "cuda", precision: str = "fp16") -> None:
-        from aesthetic_predictor_v2_5 import convert_v2_5_from_siglip  # type: ignore
+        from aesthetic_predictor_v2_5 import convert_v2_5_from_siglip
 
         self.device = torch.device(device)
         self.dtype = torch.float16 if precision == "fp16" else torch.float32
@@ -38,4 +38,4 @@ class AestheticPredictor:
             self.device, dtype=self.dtype
         )
         out = self.model(pixel_values).logits.squeeze(-1)
-        return out.float().detach().cpu().tolist()
+        return [float(v) for v in out.float().detach().cpu().tolist()]

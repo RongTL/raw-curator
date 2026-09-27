@@ -13,16 +13,18 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.arrays import Array
+
 
 def apply_clahe(
-    rgb: np.ndarray,
+    rgb: Array,
     clip_limit: float = 2.0,
     tile_grid: tuple[int, int] = (8, 8),
-) -> np.ndarray:
+) -> Array:
     if clip_limit <= 0.0:
         return rgb
     try:
-        import cv2  # type: ignore
+        import cv2
     except ImportError:
         return rgb
 

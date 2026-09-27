@@ -64,14 +64,14 @@ def test_run_enhancement_keeps_going_after_one_photo_fails(
     from app.enhancement import enhance_job
 
     photos = [
-        ({"hash": "bad", "source_path": "/x/bad.cr3"}, []),
-        ({"hash": "ok", "source_path": "/x/ok.cr3"}, []),
+        (enhance_job.PhotoCandidate("bad", "/x/bad.cr3", "raw", "enhance_only"), []),
+        (enhance_job.PhotoCandidate("ok", "/x/ok.cr3", "raw", "enhance_only"), []),
     ]
     seen: list[str] = []
 
-    def fake_enhance_one(photo: dict[str, object], faces: list[object]) -> Path | None:
-        seen.append(str(photo["hash"]))
-        if photo["hash"] == "bad":
+    def fake_enhance_one(photo: enhance_job.PhotoCandidate, faces: list[object]) -> Path | None:
+        seen.append(photo.hash)
+        if photo.hash == "bad":
             raise RuntimeError("darktable-cli exploded")
         return tmp_path / "ok.tif"
 

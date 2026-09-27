@@ -11,6 +11,8 @@ import open_clip
 import torch
 from PIL import Image
 
+from app.arrays import Array
+
 log = logging.getLogger(__name__)
 
 MODEL_NAME = "ViT-L-14"
@@ -40,7 +42,7 @@ class ClipEmbedder:
         torch.cuda.empty_cache()
 
     @torch.inference_mode()
-    def embed_batch(self, paths: Iterable[Path]) -> Iterator[tuple[Path, np.ndarray]]:
+    def embed_batch(self, paths: Iterable[Path]) -> Iterator[tuple[Path, Array]]:
         batch_paths = list(paths)
         if not batch_paths:
             return
@@ -53,9 +55,9 @@ class ClipEmbedder:
         yield from zip(batch_paths, feats_np, strict=True)
 
 
-def vec_to_bytes(vec: np.ndarray) -> bytes:
+def vec_to_bytes(vec: Array) -> bytes:
     return np.ascontiguousarray(vec.astype(np.float16)).tobytes()
 
 
-def bytes_to_vec(buf: bytes) -> np.ndarray:
+def bytes_to_vec(buf: bytes) -> Array:
     return np.frombuffer(buf, dtype=np.float16).copy()

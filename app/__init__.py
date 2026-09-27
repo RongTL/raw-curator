@@ -31,7 +31,7 @@ def _install_torchvision_compat_shim() -> None:
     if name in sys.modules:
         return
     try:
-        import torchvision.transforms.functional as F  # type: ignore
+        import torchvision.transforms.functional as F
     except Exception:
         return
     shim = types.ModuleType(name)
@@ -59,7 +59,7 @@ def _link_codeformer_aux_weights() -> None:
     if not source_dir.is_dir():
         return
     try:
-        import codeformer  # type: ignore
+        import codeformer
     except Exception:
         return
     target_dir = Path(codeformer.__file__).parent / "weights" / "facelib"

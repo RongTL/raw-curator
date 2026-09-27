@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.arrays import Array
+
 
 def filmic_tone_map(
-    rgb: np.ndarray,
+    rgb: Array,
     shoulder: float = 0.85,
     toe: float = 0.04,
-) -> np.ndarray:
+) -> Array:
     s = float(np.clip(shoulder, 0.5, 0.99))
     t = float(np.clip(toe, 0.0, 0.2))
     f = np.clip(rgb, 0.0, 1.0).astype(np.float32)
@@ -37,7 +39,7 @@ def filmic_tone_map(
     return np.clip(f_shouldered, 0.0, 1.0).astype(np.float32)
 
 
-def global_compress(rgb: np.ndarray, strength: float = 0.5) -> np.ndarray:
+def global_compress(rgb: Array, strength: float = 0.5) -> Array:
     if strength <= 0.0:
         return rgb
     s = float(np.clip(strength, 0.0, 1.0))

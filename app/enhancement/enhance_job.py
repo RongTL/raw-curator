@@ -35,6 +35,7 @@ from rich.progress import Progress
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.arrays import Array
 from app.config import settings
 from app.db import session_scope
 from app.decision.rules import ENHANCE_ACTIONS
@@ -52,19 +53,28 @@ log = logging.getLogger(__name__)
 console = Console()
 
 
-def _candidates() -> list[tuple[dict, list[tuple[int, int, int, int]]]]:
-    """Detached snapshots safe to consume after the session closes.
+FaceBox = tuple[int, int, int, int]  # x, y, w, h in preview pixels
 
-    Returns (photo_dict, face_boxes). face_boxes is a list of (x, y, w, h).
-    """
-    snapshots: list[tuple[dict, list[tuple[int, int, int, int]]]] = []
+
+@dataclass(frozen=True)
+class PhotoCandidate:
+    """Detached snapshot of a photo row, safe to use after the session closes."""
+
+    hash: str
+    source_path: str
+    file_kind: str | None
+    action: str
+
+
+def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
+    snapshots: list[tuple[PhotoCandidate, list[FaceBox]]] = []
     with session_scope() as sess:
         rows = sess.execute(
             select(Photo.hash, Photo.source_path, Photo.file_kind, Decision.action)
             .join(Decision, Photo.hash == Decision.photo_hash)
             .where(Decision.action.in_(ENHANCE_ACTIONS))
         ).all()
-        faces_by_hash: dict[str, list[tuple[int, int, int, int]]] = {}
+        faces_by_hash: dict[str, list[FaceBox]] = {}
         face_rows = sess.execute(
             select(Face.photo_hash, Face.bbox_x, Face.bbox_y, Face.bbox_w, Face.bbox_h)
         ).all()
@@ -73,12 +83,9 @@ def _candidates() -> list[tuple[dict, list[tuple[int, int, int, int]]]]:
         for digest, source_path, file_kind, action in rows:
             snapshots.append(
                 (
-                    {
-                        "hash": digest,
-                        "source_path": source_path,
-                        "file_kind": file_kind,
-                        "action": action,
-                    },
+                    PhotoCandidate(
+                        hash=digest, source_path=source_path, file_kind=file_kind, action=action
+                    ),
                     faces_by_hash.get(digest, []),
                 )
             )
@@ -105,7 +112,7 @@ def persist_report(sess: Session, photo_hash: str, report: QualityReport) -> Non
         setattr(row, f.name, getattr(report, f.name))
 
 
-def _load_linear_float(tiff_path: Path) -> np.ndarray:
+def _load_linear_float(tiff_path: Path) -> Array:
     """Load a 16-bit linear TIFF (from darktable_cli) as float32 RGB in [0,1]."""
     arr = np.asarray(Image.open(tiff_path))
     if arr.ndim != 3 or arr.shape[2] != 3:
@@ -121,17 +128,17 @@ def _load_linear_float(tiff_path: Path) -> np.ndarray:
     return np.clip(arr.astype(np.float32), 0.0, 1.0)
 
 
-def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Path | None:
-    src = Path(photo["source_path"])
+def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | None:
+    src = Path(photo.source_path)
     if not src.exists():
         log.warning("source missing: %s", src)
         return None
-    file_kind = photo.get("file_kind")
+    file_kind = photo.file_kind
     if file_kind is not None and file_kind != "raw":
         log.warning("skipping enhance for non-RAW source (kind=%s): %s", file_kind, src.name)
         return None
 
-    full_tiff = darktable_cli(src, xmp=_xmp_for(photo["source_path"]))
+    full_tiff = darktable_cli(src, xmp=_xmp_for(photo.source_path))
     rgb_f01 = _load_linear_float(full_tiff)
     native_h, native_w = rgb_f01.shape[:2]
 
@@ -148,7 +155,7 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
         report.score_noise,
     )
     with session_scope() as sess:
-        persist_report(sess, photo["hash"], report)
+        persist_report(sess, photo.hash, report)
 
     plan = plan_from_report(
         report,
@@ -179,7 +186,7 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
     # path. A May 2026 incident destroyed 10 originals because a buggy classical
     # step collapsed mid-toned inputs to mean ~0.05; the deletion guard only
     # checked that the file existed, not that it was a plausible image.
-    if photo.get("action") == "enhance_only" and out.exists():
+    if photo.action == "enhance_only" and out.exists():
         input_mean = float(rgb_f01.mean())
         output_mean = float(result_f01.mean())
         output_std = float(result_f01.std())
@@ -230,8 +237,8 @@ def run_enhancement() -> EnhanceSummary:
                 out = _enhance_one(photo, face_boxes)
             except Exception:  # noqa: BLE001 — one bad frame must not sink the batch
                 failed += 1
-                log.exception("enhance failed for %s; source left in place", photo["source_path"])
-                console.print(f"  [red]x {Path(photo['source_path']).name}: see log[/red]")
+                log.exception("enhance failed for %s; source left in place", photo.source_path)
+                console.print(f"  [red]x {Path(photo.source_path).name}: see log[/red]")
             else:
                 if out:
                     enhanced += 1

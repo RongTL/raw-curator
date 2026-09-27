@@ -20,6 +20,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from app.arrays import Array
 from app.enhancement.colorspace import luma, rgb_to_ycbcr
 
 log = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ _NOISE_FLAT_GRADIENT_MAX = 4.0  # 8-bit luma gradient ceiling for a "flat" patch
 _FFT_CENTER_FRAC = 0.25  # the band we treat as DC/low-frequency
 
 
-def to_float01(img: np.ndarray) -> np.ndarray:
+def to_float01(img: Array) -> Array:
     """Normalize uint8 / uint16 / float to float32 [0, 1]."""
     if img.dtype == np.float32:
         return np.clip(img, 0.0, 1.0)
@@ -47,7 +48,7 @@ def to_float01(img: np.ndarray) -> np.ndarray:
     raise TypeError(f"unsupported dtype {img.dtype} for quality measurement")
 
 
-def linear_to_srgb_u8(rgb_f01: np.ndarray) -> np.ndarray:
+def linear_to_srgb_u8(rgb_f01: Array) -> Array:
     """Encode linear-light float to sRGB-gamma 8-bit (matches what a viewer shows)."""
     a = 0.055
     f = np.clip(rgb_f01, 0.0, 1.0)
@@ -56,7 +57,7 @@ def linear_to_srgb_u8(rgb_f01: np.ndarray) -> np.ndarray:
     return (out * 255.0 + 0.5).astype(np.uint8)
 
 
-def _luma_u8(rgb_f01: np.ndarray) -> np.ndarray:
+def _luma_u8(rgb_f01: Array) -> Array:
     lum = luma(rgb_f01)
     # sRGB-encode the single-channel luma directly.
     a = 0.055
@@ -72,7 +73,7 @@ def _luma_u8(rgb_f01: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def exposure_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
+def exposure_metrics(rgb_f01: Array) -> dict[str, float]:
     lum = _luma_u8(rgb_f01)
     hist = np.bincount(lum.ravel(), minlength=256).astype(np.float64)
     total = float(hist.sum())
@@ -111,7 +112,7 @@ def exposure_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def dynamic_range_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
+def dynamic_range_metrics(rgb_f01: Array) -> dict[str, float]:
     lum = _luma_u8(rgb_f01).astype(np.float32)
     p5, p95 = np.percentile(lum, [5, 95])
     dr = float(p95 - p5)
@@ -132,7 +133,7 @@ def dynamic_range_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
 
 
 def color_metrics(
-    rgb_f01: np.ndarray,
+    rgb_f01: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
 ) -> dict[str, float | None]:
     rgb = rgb_f01.reshape(-1, 3)
@@ -150,8 +151,8 @@ def color_metrics(
     skin_hue_var: float | None = None
     if face_boxes:
         height, width, _ = rgb_f01.shape
-        cb_chunks: list[np.ndarray] = []
-        cr_chunks: list[np.ndarray] = []
+        cb_chunks: list[Array] = []
+        cr_chunks: list[Array] = []
         for x, y, w, h in face_boxes:
             x0 = max(0, int(x))
             y0 = max(0, int(y))
@@ -182,10 +183,10 @@ def color_metrics(
 # ---------------------------------------------------------------------------
 
 
-def sharpness_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
+def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
     lum = _luma_u8(rgb_f01)
     try:
-        import cv2  # type: ignore
+        import cv2
 
         lap = cv2.Laplacian(lum, ddepth=cv2.CV_32F, ksize=3)
         lap_var = float(lap.var())
@@ -223,7 +224,7 @@ def sharpness_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
     }
 
 
-def _conv2d_same(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+def _conv2d_same(img: Array, kernel: Array) -> Array:
     kh, kw = kernel.shape
     pad_h, pad_w = kh // 2, kw // 2
     padded = np.pad(img, ((pad_h, pad_h), (pad_w, pad_w)), mode="reflect")
@@ -239,12 +240,12 @@ def _conv2d_same(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def noise_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
+def noise_metrics(rgb_f01: Array) -> dict[str, float]:
     lum = _luma_u8(rgb_f01)
     luma_noise = _flat_patch_std(lum)
 
     try:
-        import cv2  # type: ignore
+        import cv2
 
         lab = cv2.cvtColor(np.clip(rgb_f01, 0, 1).astype(np.float32), cv2.COLOR_RGB2LAB)
         a = lab[..., 1]
@@ -256,7 +257,7 @@ def noise_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
     return {"luma_noise": float(luma_noise), "chroma_noise": float(chroma)}
 
 
-def _flat_patch_std(image: np.ndarray, luma_for_flat: np.ndarray | None = None) -> float:
+def _flat_patch_std(image: Array, luma_for_flat: Array | None = None) -> float:
     """Estimate noise σ by averaging std over patches with near-zero gradient."""
     img = image.astype(np.float32)
     lum = (luma_for_flat if luma_for_flat is not None else image).astype(np.float32)
@@ -288,7 +289,7 @@ def _flat_patch_std(image: np.ndarray, luma_for_flat: np.ndarray | None = None) 
 
 
 def measure_all(
-    rgb: np.ndarray,
+    rgb: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
 ) -> dict[str, float | None]:
     rgb_f01 = to_float01(rgb)

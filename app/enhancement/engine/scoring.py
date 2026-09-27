@@ -12,6 +12,8 @@ thresholds anchoring the curve.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from app.enhancement.engine.plan import QualityReport
 
 # §1.4 exposure-score weights for clipping/midtone penalties.
@@ -20,7 +22,7 @@ _W_HIGHLIGHT = 1500.0
 _W_MIDTONE = 30.0  # deviation in [0,1] -> up to -30
 
 
-def _score_exposure(m: dict) -> float:
+def _score_exposure(m: Mapping[str, float]) -> float:
     sc = m["shadow_clip"]
     hc = m["highlight_clip"]
     md = m["midtone_deviation"]
@@ -33,7 +35,7 @@ def _score_exposure(m: dict) -> float:
     return max(0.0, 100.0 - penalty)
 
 
-def _score_dynamic_range(m: dict) -> float:
+def _score_dynamic_range(m: Mapping[str, float]) -> float:
     dr = m["dr_p95_p5"]
     if dr < 60.0:
         return 100.0 * (dr / 60.0) * 0.6
@@ -44,7 +46,7 @@ def _score_dynamic_range(m: dict) -> float:
     return max(70.0, 100.0 - (dr - 150.0) * 0.3)
 
 
-def _score_color(m: dict) -> float:
+def _score_color(m: Mapping[str, float]) -> float:
     rg = m["rg_ratio"]
     bg = m["bg_ratio"]
     cast = max(abs(rg - 1.0), abs(bg - 1.0))
@@ -61,7 +63,7 @@ def _score_color(m: dict) -> float:
     return max(0.0, 100.0 - cast_penalty - sat_penalty - over_penalty)
 
 
-def _score_sharpness(m: dict) -> float:
+def _score_sharpness(m: Mapping[str, float]) -> float:
     v = m["lap_var"]
     if v >= 150.0:
         return max(75.0, 100.0 - max(0.0, (v - 400.0) * 0.05))
@@ -70,7 +72,7 @@ def _score_sharpness(m: dict) -> float:
     return max(0.0, 50.0 * v / 50.0)
 
 
-def _score_noise(m: dict) -> float:
+def _score_noise(m: Mapping[str, float]) -> float:
     lum = m["luma_noise"]
     chr_ = m["chroma_noise"]
     n = max(lum, chr_ * 0.5)
@@ -83,32 +85,35 @@ def _score_noise(m: dict) -> float:
     return max(0.0, 25.0 - (n - 10.0) * 2.0)
 
 
-def score_report(metrics: dict) -> QualityReport:
-    e = _score_exposure(metrics)
-    d = _score_dynamic_range(metrics)
-    c = _score_color(metrics)
-    s = _score_sharpness(metrics)
-    n = _score_noise(metrics)
+def score_report(metrics: Mapping[str, float | None]) -> QualityReport:
+    # Every metric except skin_hue_var is always measured; drop Nones once so the
+    # sub-scorers work on plain floats.
+    m: dict[str, float] = {k: v for k, v in metrics.items() if v is not None}
+    e = _score_exposure(m)
+    d = _score_dynamic_range(m)
+    c = _score_color(m)
+    s = _score_sharpness(m)
+    n = _score_noise(m)
     q = 0.25 * e + 0.20 * d + 0.25 * c + 0.15 * s + 0.15 * n
     skin = metrics.get("skin_hue_var")
     return QualityReport(
-        mean_luma=float(metrics["mean_luma"]),
-        shadow_clip=float(metrics["shadow_clip"]),
-        highlight_clip=float(metrics["highlight_clip"]),
-        midtone_ratio=float(metrics["midtone_ratio"]),
-        midtone_deviation=float(metrics["midtone_deviation"]),
-        dr_p95_p5=float(metrics["dr_p95_p5"]),
-        local_dr_mean=float(metrics["local_dr_mean"]),
-        rg_ratio=float(metrics["rg_ratio"]),
-        bg_ratio=float(metrics["bg_ratio"]),
-        avg_saturation=float(metrics["avg_saturation"]),
-        oversat_ratio=float(metrics["oversat_ratio"]),
+        mean_luma=float(m["mean_luma"]),
+        shadow_clip=float(m["shadow_clip"]),
+        highlight_clip=float(m["highlight_clip"]),
+        midtone_ratio=float(m["midtone_ratio"]),
+        midtone_deviation=float(m["midtone_deviation"]),
+        dr_p95_p5=float(m["dr_p95_p5"]),
+        local_dr_mean=float(m["local_dr_mean"]),
+        rg_ratio=float(m["rg_ratio"]),
+        bg_ratio=float(m["bg_ratio"]),
+        avg_saturation=float(m["avg_saturation"]),
+        oversat_ratio=float(m["oversat_ratio"]),
         skin_hue_var=(float(skin) if skin is not None else None),
-        lap_var=float(metrics["lap_var"]),
-        edge_density=float(metrics["edge_density"]),
-        hf_energy=float(metrics["hf_energy"]),
-        luma_noise=float(metrics["luma_noise"]),
-        chroma_noise=float(metrics["chroma_noise"]),
+        lap_var=float(m["lap_var"]),
+        edge_density=float(m["edge_density"]),
+        hf_energy=float(m["hf_energy"]),
+        luma_noise=float(m["luma_noise"]),
+        chroma_noise=float(m["chroma_noise"]),
         score_exposure=float(e),
         score_dynamic_range=float(d),
         score_color=float(c),

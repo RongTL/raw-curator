@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import imagehash
-import numpy as np
 from PIL import Image
 
+from app.arrays import Array
 
-def phash(rgb: np.ndarray, size: int = 8) -> str:
+
+def phash(rgb: Array, size: int = 8) -> str:
     return str(imagehash.phash(Image.fromarray(rgb), hash_size=size))
 
 
-def dhash(rgb: np.ndarray, size: int = 8) -> str:
+def dhash(rgb: Array, size: int = 8) -> str:
     return str(imagehash.dhash(Image.fromarray(rgb), hash_size=size))
 
 

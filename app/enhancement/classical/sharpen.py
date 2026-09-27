@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.arrays import Array
 from app.enhancement.colorspace import luma
 
 
-def _gaussian_blur(channel: np.ndarray, radius: float) -> np.ndarray:
+def _gaussian_blur(channel: Array, radius: float) -> Array:
     try:
-        import cv2  # type: ignore
+        import cv2
 
         k = max(3, int(round(radius * 6.0)) | 1)
         return cv2.GaussianBlur(channel, (k, k), sigmaX=float(radius))
@@ -31,11 +32,11 @@ def _gaussian_blur(channel: np.ndarray, radius: float) -> np.ndarray:
 
 
 def unsharp_mask(
-    rgb: np.ndarray,
+    rgb: Array,
     amount: float = 0.6,
     radius: float = 1.4,
     threshold: float = 0.005,
-) -> np.ndarray:
+) -> Array:
     if amount <= 0.0:
         return rgb
     lum = luma(rgb)

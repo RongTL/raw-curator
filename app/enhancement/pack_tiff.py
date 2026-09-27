@@ -7,8 +7,10 @@ from pathlib import Path
 import numpy as np
 import tifffile
 
+from app.arrays import Array
 
-def write_tiff16(arr: np.ndarray, out: Path) -> None:
+
+def write_tiff16(arr: Array, out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     if arr.dtype != np.uint16:
         arr = (

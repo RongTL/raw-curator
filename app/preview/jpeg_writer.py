@@ -8,8 +8,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from app.arrays import Array
 
-def resize_long_edge(arr: np.ndarray, long_edge: int) -> np.ndarray:
+
+def resize_long_edge(arr: Array, long_edge: int) -> Array:
     """Lanczos-downscale so the long edge is ``long_edge`` px. ``0`` (or any
     non-positive value) means native resolution; never upscales."""
     if long_edge <= 0:
@@ -26,7 +28,7 @@ def resize_long_edge(arr: np.ndarray, long_edge: int) -> np.ndarray:
 
 
 def write_jpeg(
-    arr: np.ndarray,
+    arr: Array,
     dest: Path,
     quality: int = 92,
     *,
@@ -45,5 +47,5 @@ def write_jpeg(
     )
 
 
-def decode_jpeg_bytes(jpeg_bytes: bytes) -> np.ndarray:
+def decode_jpeg_bytes(jpeg_bytes: bytes) -> Array:
     return np.asarray(Image.open(io.BytesIO(jpeg_bytes)).convert("RGB"))

@@ -21,6 +21,7 @@ import logging
 
 import numpy as np
 
+from app.arrays import Array
 from app.enhancement.colorspace import luma
 
 log = logging.getLogger(__name__)
@@ -45,11 +46,11 @@ _HIGHLIGHT_PROTECT_RANGE = 0.30
 _MASK_WORK_MAX_EDGE = 768
 
 
-def _rgb_to_luma(rgb_u8: np.ndarray) -> np.ndarray:
+def _rgb_to_luma(rgb_u8: Array) -> Array:
     return luma(rgb_u8.astype(np.float32) / 255.0)
 
 
-def is_backlit(luma01: np.ndarray) -> bool:
+def is_backlit(luma01: Array) -> bool:
     """Histogram-based backlit detector.
 
     Triggers only when the histogram is bimodal: dense deep shadows AND
@@ -79,7 +80,7 @@ def is_backlit(luma01: np.ndarray) -> bool:
     )
 
 
-def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
+def _edge_preserving_luma(luma01: Array) -> Array | None:
     """Bilateral-filtered luminance, computed on a downscaled copy for speed.
 
     Returns None when cv2 is unavailable — callers must treat this as
@@ -93,7 +94,7 @@ def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
     the original luma at full resolution.
     """
     try:
-        import cv2  # type: ignore
+        import cv2
     except ImportError as exc:
         log.warning("cv2 unavailable (%s) — backlit recovery requires opencv-python; skipping", exc)
         return None
@@ -115,21 +116,21 @@ def _edge_preserving_luma(luma01: np.ndarray) -> np.ndarray | None:
     return smoothed.astype(np.float32) / 255.0
 
 
-def _lift_mask(local_luma: np.ndarray) -> np.ndarray:
+def _lift_mask(local_luma: Array) -> Array:
     return np.exp(-((local_luma - _LIFT_MASK_CENTRE) ** 2) / (2.0 * _LIFT_MASK_SIGMA**2))
 
 
-def _highlight_protect(local_luma: np.ndarray, strength: float) -> np.ndarray:
+def _highlight_protect(local_luma: Array, strength: float) -> Array:
     ramp = np.clip((local_luma - _HIGHLIGHT_PROTECT_KNEE) / _HIGHLIGHT_PROTECT_RANGE, 0.0, 1.0)
     return 1.0 - ramp * np.clip(strength, 0.0, 1.0)
 
 
 def recover_backlit(
-    rgb: np.ndarray,
+    rgb: Array,
     shadow_lift: float = 0.4,
     highlight_protect: float = 0.15,
     force: bool = False,
-) -> np.ndarray:
+) -> Array:
     """Apply backlit recovery if the image looks backlit (or `force=True`).
 
     Returns the input unchanged when not backlit and not forced, or when

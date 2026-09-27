@@ -54,7 +54,7 @@ def _photos_missing_faces() -> list[tuple[str, str]]:
     return [(h, p) for h, p in rows if p and Path(p).exists()]
 
 
-def _stage_clip(items):
+def _stage_clip(items: list[tuple[str, str]]) -> None:
     if not items:
         console.print("[green]CLIP: nothing to embed.[/green]")
         return
@@ -74,7 +74,7 @@ def _stage_clip(items):
     console.print(f"  memory: {memory_summary()}")
 
 
-def _stage_aesthetic(items):
+def _stage_aesthetic(items: list[tuple[str, str]]) -> None:
     if not items:
         return
     console.print(f"[cyan]Stage A.2 — Aesthetic v2.5 ({len(items)} photos)[/cyan]")
@@ -99,7 +99,7 @@ def _stage_aesthetic(items):
     console.print(f"  memory: {memory_summary()}")
 
 
-def _stage_iqa(items):
+def _stage_iqa(items: list[tuple[str, str]]) -> None:
     if not items:
         return
     console.print(f"[cyan]Stage B.1 — MUSIQ ({len(items)} photos)[/cyan]")
@@ -144,7 +144,7 @@ def _stage_iqa(items):
             )
 
 
-def _stage_faces(items):
+def _stage_faces(items: list[tuple[str, str]]) -> None:
     if not items:
         return
     console.print(f"[cyan]Stage C — InsightFace ({len(items)} photos)[/cyan]")

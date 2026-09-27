@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -26,7 +28,7 @@ class BulkDecisionIn(BaseModel):
 
 
 @router.post("/")
-def stage_decision(d: DecisionIn) -> dict:
+def stage_decision(d: DecisionIn) -> dict[str, bool]:
     with session_scope() as sess:
         if not sess.get(Photo, d.photo_hash):
             raise HTTPException(status_code=404, detail="photo not found")
@@ -39,14 +41,14 @@ def stage_decision(d: DecisionIn) -> dict:
         if d.stars is not None:
             existing.stars = d.stars
         if d.favorite is not None:
-            existing.favorite = 1 if d.favorite else 0
+            existing.favorite = d.favorite
         if d.note is not None:
             existing.note = d.note
         return {"ok": True}
 
 
 @router.post("/all")
-def stage_all_decisions(d: BulkDecisionIn) -> dict:
+def stage_all_decisions(d: BulkDecisionIn) -> dict[str, Any]:
     try:
         with session_scope() as sess:
             staged = stage_all(sess, d.selected)
@@ -56,7 +58,7 @@ def stage_all_decisions(d: BulkDecisionIn) -> dict:
 
 
 @router.get("/pending")
-def list_pending() -> list[dict]:
+def list_pending() -> list[dict[str, Any]]:
     with session_scope() as sess:
         rows = sess.execute(select(Decision).where(Decision.applied == 0)).scalars().all()
         return [

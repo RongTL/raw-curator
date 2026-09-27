@@ -16,12 +16,13 @@ import logging
 
 import numpy as np
 
+from app.arrays import Array
 from app.enhancement.colorspace import luma
 
 log = logging.getLogger(__name__)
 
 
-def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
+def gamma_correct(rgb: Array, gain: float) -> Array:
     if abs(gain) < 1e-4:
         return rgb
     k = float(gain)
@@ -29,7 +30,7 @@ def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
     return np.power(f, 1.0 / (1.0 + k)).astype(np.float32)
 
 
-def shadow_lift(rgb: np.ndarray, amount: float = 0.35) -> np.ndarray:
+def shadow_lift(rgb: Array, amount: float = 0.35) -> Array:
     if amount <= 0.0:
         return rgb
     lum = luma(rgb)
@@ -39,7 +40,7 @@ def shadow_lift(rgb: np.ndarray, amount: float = 0.35) -> np.ndarray:
     return boosted.astype(np.float32)
 
 
-def highlight_recover(rgb: np.ndarray, amount: float = 0.5, knee: float = 0.75) -> np.ndarray:
+def highlight_recover(rgb: Array, amount: float = 0.5, knee: float = 0.75) -> Array:
     if amount <= 0.0:
         return rgb
     knee = float(np.clip(knee, 0.1, 0.99))

@@ -88,6 +88,17 @@ strict = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+# Vendored upstream architecture (github.com/cszn/SCUNet); not ours to annotate.
+module = "app.enhancement._scunet_arch"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# numpy arithmetic on dtype-agnostic arrays (app.arrays.Array) is typed Any by
+# the numpy stubs, so every `return a * b` here would trip warn_return_any.
+module = "app.enhancement.*"
+warn_return_any = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

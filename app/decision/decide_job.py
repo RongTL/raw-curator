@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from sqlalchemy import select, update
@@ -31,7 +32,7 @@ console = Console()
 
 def apply_decisions() -> None:
     moves: list[Move] = []
-    updates: list[dict] = []
+    updates: list[dict[str, Any]] = []
 
     with session_scope() as sess:
         rows = sess.execute(

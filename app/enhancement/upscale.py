@@ -13,23 +13,24 @@ import logging
 
 import numpy as np
 
+from app.arrays import Array
 from app.enhancement.downsample import lanczos_resize
 from app.enhancement.weights import realesrgan_weights
 
 log = logging.getLogger(__name__)
 
 
-def _lanczos_x2(rgb: np.ndarray) -> np.ndarray:
+def _lanczos_x2(rgb: Array) -> Array:
     h, w = rgb.shape[:2]
     return lanczos_resize(rgb, (w * 2, h * 2))
 
 
 def realesrgan_x2(
-    rgb: np.ndarray,
+    rgb: Array,
     tile_size: int = 768,
     tile_pad: int = 16,
     fidelity: float = 1.0,
-) -> np.ndarray:
+) -> Array:
     """x2 upscale with a fidelity blend.
 
     `fidelity` in [0, 1]: 1.0 is pure Real-ESRGAN (original behaviour),
@@ -41,8 +42,8 @@ def realesrgan_x2(
         return _lanczos_x2(rgb)
 
     try:
-        from basicsr.archs.rrdbnet_arch import RRDBNet  # type: ignore
-        from realesrgan import RealESRGANer  # type: ignore
+        from basicsr.archs.rrdbnet_arch import RRDBNet
+        from realesrgan import RealESRGANer
     except ImportError as exc:
         log.warning("realesrgan imports failed: %s — falling back to Lanczos x2", exc)
         return _lanczos_x2(rgb)

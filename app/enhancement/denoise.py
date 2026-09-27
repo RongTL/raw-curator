@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+from app.arrays import Array
 from app.config import settings
 from app.enhancement.weights import scunet_weights
+
+if TYPE_CHECKING:
+    import torch
 
 log = logging.getLogger(__name__)
 
@@ -21,14 +27,14 @@ _MULTIPLE = 64
 
 
 def _tiled_forward(
-    model,
-    x,
+    model: Callable[[torch.Tensor], torch.Tensor],
+    x: torch.Tensor,
     multiple: int = _MULTIPLE,
     tile: int | None = None,
     pad: int | None = None,
-):
-    import torch  # type: ignore
-    import torch.nn.functional as F  # type: ignore
+) -> torch.Tensor:
+    import torch
+    import torch.nn.functional as F
 
     tile = settings.scunet_tile if tile is None else tile
     pad = settings.scunet_tile_pad if pad is None else pad
@@ -58,7 +64,7 @@ def _tiled_forward(
     return out
 
 
-def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
+def scunet_denoise(rgb: Array, strength: float = 1.0) -> Array:
     """Run SCUNet, then blend the denoised result with the input.
 
     `strength` in [0, 1]: 1.0 returns pure SCUNet, 0.0 returns the input
@@ -74,7 +80,7 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
         log.warning("scunet weights missing at %s — skipping denoise", weights)
         return rgb
     try:
-        import torch  # type: ignore
+        import torch
 
         from app.enhancement._scunet_arch import SCUNet
     except ImportError as exc:
@@ -83,7 +89,9 @@ def scunet_denoise(rgb: np.ndarray, strength: float = 1.0) -> np.ndarray:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if device.type == "cuda" else torch.float32
-    model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(device, dtype=dtype)
+    model = SCUNet(in_nc=3, config=[4, 4, 4, 4, 4, 4, 4], dim=64).to(  # type: ignore[no-untyped-call]
+        device, dtype=dtype
+    )
     ckpt = torch.load(str(weights), map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt.get("params") or ckpt.get("params_ema") or ckpt)
     model.eval()

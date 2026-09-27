@@ -16,6 +16,8 @@ import rawpy
 import tifffile
 from PIL import Image, ImageOps
 
+from app.arrays import Array
+
 # Extension sets live in the constants-only `app.ingest.extensions` module so
 # lightweight callers (progress polling, export) can use them without this
 # module's heavy decode deps.
@@ -117,16 +119,18 @@ def all_supported_exts() -> frozenset[str]:
     return frozenset(out)
 
 
-def develop_raw_rgb8(path: Path) -> np.ndarray:
+def develop_raw_rgb8(path: Path) -> Array:
     """Full-size 8-bit sRGB development via LibRaw (camera WB, auto-bright)."""
     with rawpy.imread(str(path)) as raw:
-        return raw.postprocess(
-            output_bps=8,
-            half_size=False,
-            no_auto_bright=False,
-            use_camera_wb=True,
-            gamma=(2.222, 4.5),
-            output_color=rawpy.ColorSpace.sRGB,
+        return np.asarray(
+            raw.postprocess(
+                output_bps=8,
+                half_size=False,
+                no_auto_bright=False,
+                use_camera_wb=True,
+                gamma=(2.222, 4.5),
+                output_color=rawpy.ColorSpace.sRGB,
+            )
         )
 
 
@@ -139,10 +143,10 @@ def extract_embedded_thumb(path: Path) -> bytes | None:
         return None
     if thumb.format != rawpy.ThumbFormat.JPEG:
         return None
-    return thumb.data
+    return bytes(thumb.data)
 
 
-def load_tiff_rgb8(path: Path) -> np.ndarray:
+def load_tiff_rgb8(path: Path) -> Array:
     """Any TIFF -> HxWx3 uint8: grayscale is broadcast, alpha dropped, 16-bit >> 8."""
     arr = tifffile.imread(str(path))
     if arr.ndim == 2:
@@ -156,16 +160,16 @@ def load_tiff_rgb8(path: Path) -> np.ndarray:
     return arr
 
 
-def load_pillow_rgb8(path: Path) -> np.ndarray:
+def load_pillow_rgb8(path: Path) -> Array:
     """JPEG / HEIC / PNG -> HxWx3 uint8, EXIF orientation applied."""
-    img = Image.open(path)
-    img = ImageOps.exif_transpose(img)
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    return np.asarray(img)
+    with Image.open(path) as opened:
+        img: Image.Image = ImageOps.exif_transpose(opened) or opened
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        return np.asarray(img)
 
 
-def decode_preview(path: Path) -> np.ndarray:
+def decode_preview(path: Path) -> Array:
     """Return an 8-bit RGB ndarray, EXIF-rotated, ready for thumb/preview pipelines."""
     kind = classify_kind(path)
     if kind is None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from app.arrays import Array
 from app.enhancement.colorspace import luma, rgb_to_ycbcr
 
 # YCbCr skin-tone range per spec §3.2, normalized to [0,1].
@@ -19,7 +20,7 @@ _SKIN_CR_LO = 133.0 / 255.0
 _SKIN_CR_HI = 173.0 / 255.0
 
 
-def _skin_mask(rgb: np.ndarray) -> np.ndarray:
+def _skin_mask(rgb: Array) -> Array:
     ycbcr = rgb_to_ycbcr(rgb)
     cb = ycbcr[..., 1]
     cr = ycbcr[..., 2]
@@ -29,10 +30,10 @@ def _skin_mask(rgb: np.ndarray) -> np.ndarray:
 
 
 def adjust_saturation(
-    rgb: np.ndarray,
+    rgb: Array,
     factor: float,
     protect_skin: bool = True,
-) -> np.ndarray:
+) -> Array:
     """Scale saturation by `factor` around luma; 1.0 is identity."""
     if abs(factor - 1.0) < 1e-4:
         return rgb
