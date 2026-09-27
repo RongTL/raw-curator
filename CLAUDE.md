@@ -82,7 +82,7 @@ Binary: `yes` or `no`. Score tier no longer drives routing.
 
 Every decided photo flows through the enhancement chain. `make enhance` queries `Decision.action IN ('keep_and_enhance', 'enhance_only')`. The source-RAW deletion for `enhance_only` is intentional and **irreversible**; it happens only after the output TIFF exists on disk, so if enhance fails the original is preserved. Do not re-introduce score tiers into routing without confirming with the user.
 
-`tier_from_scores` (`combined = 0.6 * technical + 0.4 * normalized_aesthetic`, threshold `0.55`) is retained as a display-only helper; the `Decision.score_tier` and `Decision.enhance_requested` columns are dead fields kept in the schema to avoid a migration but are no longer read or written by app code.
+`tier_from_scores` is retained as a display-only helper; the blend it uses (`0.6 * technical + 0.4 * normalized_aesthetic`, threshold `0.55`) lives once in `app/scoring/combined.py` and is shared with in-cluster ranking (`app/clustering/recommend.py`). `rules.ENHANCE_ACTIONS` is derived from the rule table and is what `enhance_job` and `orchestrator/progress.py` query for. The `Decision.score_tier` and `Decision.enhance_requested` columns are dead fields kept in the schema to avoid a migration but are no longer read or written by app code.
 
 ### Storage
 
@@ -95,23 +95,34 @@ Every decided photo flows through the enhancement chain. `make enhance` queries 
 
 All knobs are env vars with prefix `RAWCURATOR_`, loaded via pydantic-settings in `app/config.py`. The container reads them from `.env` (which `compose.yaml` injects via `env_file`, not just `${VAR}` interpolation — see commit `f098c14`). Bind-mount points are fixed: `/data/{photos,cache,models,xmp}`.
 
+Every setting must have a reader: do not add a field to `Settings` (or a row to `.env.example`/README) without code that uses it, and do not read `os.environ` directly — `denoise.py`/`face_restore.py` used to hide knobs that way. Model weight locations are resolved through `app/enhancement/weights.py` (built on `settings.models`); `scripts/download_models.py` shares the same constants. `RAWCURATOR_LOG_LEVEL` sets the root logger level installed by `app/logging_setup.py` from the Typer callback in `app/cli.py`.
+
 VRAM-sensitive defaults are tuned for a 6 GB RTX 2060:
 - `RAWCURATOR_ENHANCE_AI_SCALE=1.0` — no pre-AI downscale; AI sees native pixels. Drop to `0.85`/`0.7`/`0.5` if OOM.
 - `RAWCURATOR_ENHANCE_TARGET_RES=200%` — keep Real-ESRGAN's x2 output (e.g. 12kx8k for 24 MP source). Set to `native` to downsample back; `200%` output TIFFs are ~4x larger on disk.
 - `RAWCURATOR_CLIP_BATCH=8` — lower to `4` on OOM during scoring.
+- `RAWCURATOR_SCUNET_TILE=512` / `_TILE_PAD=32` and `RAWCURATOR_CODEFORMER_MAX_LONG_EDGE=2048` — tile/long-edge caps for the two steps that otherwise run on the full frame.
+- `RAWCURATOR_ENHANCE_DENOISE` / `_FACE_RESTORE` / `_BACKLIT_RECOVERY` — on/off switches read by `plan_from_report`.
 - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` set in `compose.yaml` to reduce fragmentation across the SCUNet → Real-ESRGAN → CodeFormer stages.
 
 ### Container topology
 
-`compose.yaml` defines two services backed by the same `raw-curator:latest` image:
+`compose.yaml` defines two services backed by the same `raw-curator:latest` image (shared block is the `x-raw-curator` YAML anchor):
 - `app` — one-shot CLI commands (`make ingest`, `make score`, etc. each `run --rm app raw-curator <cmd>`).
 - `ui` — long-running `raw-curator serve --host 0.0.0.0 --port 8080`.
+
+The image includes `tests/` and the dev dependency group, so `make test`/`make lint`/`make typecheck` run in-container; those targets bind-mount `app/`, `tests/` and `pyproject.toml` from the working tree.
 
 Both use `network_mode: host` to dodge a rootless-podman 5.x netns cleanup bug (see commit `d64fca5`). Both get `nvidia.com/gpu=all` via CDI.
 
 ## Conventions worth knowing
 
-- Python 3.12, `ruff` (line-length 100, ignore E501) + `mypy --strict`. Pydantic v2 + pydantic-settings.
+- Python 3.12, `ruff` check + format (line-length 100, ignore E501) + `mypy --strict`; all three pass and are expected to stay passing. Pydantic v2 + pydantic-settings.
+- Annotate image arrays as `Array` from `app/arrays.py` (dtype-agnostic `NDArray[Any]`); document the dtype contract (uint8 vs float32 in [0, 1]) in the docstring. `app.enhancement.*` has `warn_return_any` off because numpy arithmetic on such arrays is typed `Any`; `_scunet_arch.py` is vendored and ignored by mypy/ruff-N806.
+- Luma / YCbCr come from `app/enhancement/colorspace.py`; image decoding (RAW/TIFF/JPEG/HEIC/PNG → RGB8) from `app/ingest/decode.py`; resize + JPEG encoding from `app/preview/jpeg_writer.py`. Don't re-implement these locally.
+- API JSON for photos/decisions is built only in `app/api/serializers.py`.
+- Per-item stages (`ingest`, `filter`, `enhance`, `export-jpeg`) catch exceptions per item, log with `log.exception`, and keep going; the run summary reports failures. Don't let one bad file abort a batch.
+- Session reset lives in `app/orchestrator/reset.py::end_session` (used by `raw-curator reset`, `make reset`, and the UI's New batch). It wipes the DB, `cache/{previews,thumbs}`, and `photos/{library,exported,<jpeg_subdir>}`; never `incoming/`.
 - Job functions live at `app/<phase>/<phase>_job.py` and are called `run_<phase>()`. The Typer CLI in `app/cli.py` imports them lazily so `--help` doesn't pay the Torch/CUDA import cost.
 - Enhancement steps explicitly call `torch.cuda.empty_cache()` between stages (`_free_gpu` in `enhance_job.py`). When adding new GPU work, follow the same pattern — the 6 GB budget assumes only one model is resident at a time.
 - File moves from `submit` and outputs from `enhance`/`export-jpeg` all go through helpers in `app/decision/executor.py`, `app/enhancement/pack_tiff.py`, `app/export/jpeg_writer.py`. Don't write image bytes directly from job files.
