@@ -13,6 +13,7 @@ set of admissible keys varies per step; the runner validates at dispatch.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -94,3 +95,15 @@ class EnhancementPlan:
     report: QualityReport
     has_faces: bool
     note: str = ""
+
+
+def plan_to_json(plan: EnhancementPlan) -> str:
+    return json.dumps(
+        {
+            "has_faces": plan.has_faces,
+            "note": plan.note,
+            "steps": [
+                {"name": s.name, "params": dict(s.params), "reason": s.reason} for s in plan.steps
+            ],
+        }
+    )

@@ -6,6 +6,7 @@ this module is the one place the photo/decision payload is defined.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import fields
 from pathlib import Path
@@ -55,6 +56,10 @@ def quality_report_payload(qr: PhotoQualityReport | None) -> dict[str, Any] | No
         return None
     out: dict[str, Any] = {name: getattr(qr, name) for name in _REPORT_FIELDS}
     out["measured_at"] = qr.measured_at.isoformat() if qr.measured_at else None
+    out["plan"] = json.loads(qr.plan_json) if qr.plan_json else None
+    out["verify"] = json.loads(qr.verify_json) if qr.verify_json else None
+    out["score_q_after"] = qr.score_q_after
+    out["degraded"] = bool(qr.degraded)
     return out
 
 

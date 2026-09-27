@@ -169,6 +169,18 @@ function EngineQualityPanel({ qr }) {
           ${qr.measured_at ? html`<div class="col-span-2 mt-1 text-zinc-600">measured ${qr.measured_at}</div>` : ""}
         </div>
       </details>
+      ${qr.plan && html`
+        <details class="mt-2 text-xs text-zinc-500" open>
+          <summary class="cursor-pointer text-zinc-400">
+            recipe · ${qr.plan.steps.length} step${qr.plan.steps.length === 1 ? "" : "s"}
+            ${qr.score_q_after != null ? html` · Q after ${qr.score_q_after.toFixed(0)}` : ""}
+            ${qr.degraded ? html`<span class="ml-1 px-1 rounded bg-rose-900 text-rose-200">degraded</span>` : ""}
+          </summary>
+          <ol class="mt-1 list-decimal list-inside">
+            ${qr.plan.steps.map((s) => html`<li key=${s.name}>${s.name}
+              <span class="text-zinc-600">${Object.entries(s.params).map(([k, v]) => `${k}=${typeof v === "number" ? v.toFixed(2) : v}`).join(" ")}</span></li>`)}
+          </ol>
+        </details>`}
     </div>`;
 }
 

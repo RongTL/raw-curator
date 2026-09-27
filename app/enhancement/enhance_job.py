@@ -44,7 +44,7 @@ from app.enhancement.develop_full import darktable_cli
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
 from app.enhancement.engine.metrics import as_linear_float01
-from app.enhancement.engine.plan import QualityReport
+from app.enhancement.engine.plan import EnhancementPlan, QualityReport, plan_to_json
 from app.enhancement.engine.runner import run_plan
 from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import write_tiff16
@@ -121,6 +121,13 @@ def persist_report(sess: Session, photo_hash: str, report: QualityReport) -> Non
         setattr(row, f.name, getattr(report, f.name))
 
 
+def persist_plan(sess: Session, photo_hash: str, plan: EnhancementPlan) -> None:
+    row = sess.get(PhotoQualityReport, photo_hash)
+    if row is None:
+        raise ValueError(f"persist_report must run before persist_plan for {photo_hash}")
+    row.plan_json = plan_to_json(plan)
+
+
 def _load_linear_float(tiff_path: Path) -> Array:
     """Load darktable's 16-bit linear Rec.2020 TIFF as float32 in [0, 1]."""
     arr = tifffile.imread(str(tiff_path))
@@ -186,6 +193,8 @@ def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | Non
         backlit_shadow_lift=settings.enhance_backlit_shadow_lift,
         backlit_highlight_protect=settings.enhance_backlit_highlight_protect,
     )
+    with session_scope() as sess:
+        persist_plan(sess, photo.hash, plan)
     console.print(
         f"[dim]{src.name}[/dim] Q=[cyan]{report.score_q:.1f}[/cyan] -> "
         f"{len(plan.steps)} step(s)"

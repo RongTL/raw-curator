@@ -59,6 +59,24 @@ def test_persist_report_upserts_one_row_per_photo(tmp_db: Session) -> None:
     assert rows[0].mean_luma == 128.0
 
 
+def test_persist_plan_stores_steps_as_json(tmp_db: Session) -> None:
+    import json
+
+    from app.enhancement.engine.decision import plan_from_report
+    from app.enhancement.enhance_job import persist_plan
+
+    tmp_db.add(Photo(hash="h2", source_path="/x/b.cr3"))
+    tmp_db.flush()
+    report = _report(luma_noise=6.0)
+    persist_report(tmp_db, "h2", report)
+    persist_plan(tmp_db, "h2", plan_from_report(report))
+    tmp_db.flush()
+    row = tmp_db.get(PhotoQualityReport, "h2")
+    steps = json.loads(row.plan_json)["steps"]
+    assert any(s["name"] == "scunet_denoise" for s in steps)
+    assert all({"name", "params", "reason"} <= set(s) for s in steps)
+
+
 def test_load_linear_float_reads_16bit_rgb_tiff(tmp_path: Path) -> None:
     import tifffile
 
