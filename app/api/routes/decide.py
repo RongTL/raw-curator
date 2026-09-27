@@ -1,4 +1,4 @@
-"""Stage a decision (in-memory). Doesn't move files — that's /api/submit."""
+"""Stage a decision in the decisions table. Nothing moves on disk until the Submit stage."""
 
 from __future__ import annotations
 
