@@ -1,61 +1,37 @@
-"""Enhancement orchestrator — drives the Auto Enhancement Engine per photo.
+"""Enhancement entrypoint — selects candidates, then delegates to the batch runner.
 
-For each photo whose decision action is in {keep_and_enhance, enhance_only}:
+For every photo whose decision action is in {keep_and_enhance, enhance_only},
+`run_enhancement` warms up the GPU worker and hands the candidate snapshots to
+`app.enhancement.batch.run_batch`, which executes the Auto Enhancement Engine
+step-major over the whole batch (develop+plan+pre-AI per photo, then each AI
+model loaded once over the photos that need it, then post-AI+verify+write).
 
-    1. darktable develops the RAW to a 16-bit linear TIFF.
-    2. Load that TIFF as float32 RGB in [0, 1]. (uint16 -> /65535)
-    3. Measure quality across spec §1-§5 dimensions.
-    4. Score the measurements into a QualityReport (§6 weights).
-    5. Plan an ordered sequence of enhancement steps (§7 order).
-    6. Execute the plan via engine.runner.run_plan, which handles:
-       - classical steps at full native resolution in float32
-       - AI steps on a VRAM-fitted downscale, then resampled back
-       - VRAM cache eviction between GPU stages
-    7. Write the result as a 16-bit linear TIFF in photos/exported/.
-    8. If the decision was "no" (enhance_only), delete the source RAW
-       only after the output TIFF exists on disk.
-
-Hardware fit (Ryzen 3 3100 + 24 GB RAM + RTX 2060 6 GB):
-- Full-res 24 MP float32 RGB = ~290 MB; well within 24 GB.
-- enhance_ai_scale < 1 downsizes the AI-step input if SCUNet/Real-ESRGAN OOM.
-- cv2 kernels release the GIL — they saturate all 8 threads automatically.
+This module keeps the pieces the batch runner reuses: candidate selection
+(`_candidates`), the persistence helpers (`persist_report`/`persist_plan`/
+`persist_verdict`), the RAW-deletion gate (`may_delete_source`), the developed-
+TIFF loader (`_load_linear_float`), and the shared data records
+(`PhotoCandidate`, `EnhanceSummary`). `run_enhancement` imports `batch` lazily
+because `batch` imports from this module.
 """
 
 from __future__ import annotations
 
-import contextlib
-import logging
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 import tifffile
 from PIL import Image
-from rich.console import Console
-from rich.progress import Progress
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.arrays import Array
-from app.config import settings
 from app.db import session_scope
 from app.decision.rules import ENHANCE_ACTIONS
-from app.enhancement.develop_full import darktable_cli, read_icc_profile
-from app.enhancement.engine import measure_all, score_report
-from app.enhancement.engine.decision import plan_from_report
 from app.enhancement.engine.metrics import as_linear_float01
 from app.enhancement.engine.plan import EnhancementPlan, QualityReport, plan_to_json
-from app.enhancement.engine.runner import run_plan
-from app.enhancement.geometry import scale_boxes
-from app.enhancement.pack_tiff import copy_metadata, write_tiff16
-from app.enhancement.sidecar import resolve_xmp
-from app.enhancement.verify import Verdict, safe_plan, verify
+from app.enhancement.verify import Verdict
 from app.models import Decision, Face, Photo, PhotoQualityReport
-from app.paths import relative_subpath
 from app.workers.gpu_worker import warmup
-
-log = logging.getLogger(__name__)
-console = Console()
-
 
 FaceBox = tuple[int, int, int, int]  # x, y, w, h in preview pixels
 
@@ -158,101 +134,6 @@ def preview_size(path: Path | None) -> tuple[int, int] | None:
         return im.size
 
 
-def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | None:
-    src = Path(photo.source_path)
-    if not src.exists():
-        log.warning("source missing: %s", src)
-        return None
-    file_kind = photo.file_kind
-    if file_kind is not None and file_kind != "raw":
-        log.warning("skipping enhance for non-RAW source (kind=%s): %s", file_kind, src.name)
-        return None
-
-    full_tiff = darktable_cli(
-        src, xmp=resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
-    )
-    icc = read_icc_profile(full_tiff)
-    if icc is None:
-        log.warning("developed TIFF for %s has no ICC profile; master will be untagged", src.name)
-    rgb_f01 = _load_linear_float(full_tiff)
-    native_h, native_w = rgb_f01.shape[:2]
-
-    src_size = preview_size(Path(photo.preview_path) if photo.preview_path else None)
-    if src_size is None and face_boxes:
-        log.warning("preview missing for %s; ignoring %d face box(es)", src.name, len(face_boxes))
-    face_boxes = scale_boxes(face_boxes, src_size, (native_w, native_h)) if src_size else []
-
-    metrics = measure_all(rgb_f01, face_boxes=face_boxes if face_boxes else None)
-    report = score_report(metrics)
-    log.info(
-        "engine quality %s Q=%.1f (E=%.1f D=%.1f C=%.1f S=%.1f N=%.1f)",
-        src.name,
-        report.score_q,
-        report.score_exposure,
-        report.score_dynamic_range,
-        report.score_color,
-        report.score_sharpness,
-        report.score_noise,
-    )
-    with session_scope() as sess:
-        persist_report(sess, photo.hash, report)
-
-    plan = plan_from_report(
-        report,
-        has_faces=bool(face_boxes),
-        denoise=settings.enhance_denoise,
-        face_restore=settings.enhance_face_restore,
-        backlit_recovery=settings.enhance_backlit_recovery,
-        enhance_codeformer_w=settings.enhance_codeformer_w,
-        enhance_realesrgan_fidelity=settings.enhance_realesrgan_fidelity,
-        enhance_denoise_strength=settings.enhance_denoise_strength,
-        backlit_shadow_lift=settings.enhance_backlit_shadow_lift,
-        backlit_highlight_protect=settings.enhance_backlit_highlight_protect,
-    )
-    console.print(
-        f"[dim]{src.name}[/dim] Q=[cyan]{report.score_q:.1f}[/cyan] -> "
-        f"{len(plan.steps)} step(s)"
-    )
-
-    result_f01 = run_plan(rgb_f01, plan, native_size=(native_w, native_h))
-    after = score_report(measure_all(result_f01, face_boxes=face_boxes or None))
-    verdict = verify(report, after, result_f01)
-    if verdict.degraded:
-        log.warning(
-            "%s degraded (%s); retrying with the safe plan", src.name, ",".join(verdict.reasons)
-        )
-        retry = safe_plan(plan)
-        retry_f01 = run_plan(rgb_f01, retry, native_size=(native_w, native_h))
-        retry_after = score_report(measure_all(retry_f01, face_boxes=face_boxes or None))
-        retry_verdict = verify(report, retry_after, retry_f01)
-        if retry_after.score_q >= after.score_q:
-            result_f01, verdict, plan = retry_f01, retry_verdict, retry
-    with session_scope() as sess:
-        persist_plan(sess, photo.hash, plan)
-        persist_verdict(sess, photo.hash, verdict)
-
-    out = settings.photos / "exported" / relative_subpath(src, settings.photos).with_suffix(".tif")
-    write_tiff16(result_f01, out, icc=icc)
-    copy_metadata(src, out)
-    with contextlib.suppress(OSError):
-        full_tiff.unlink()
-
-    if may_delete_source(photo, out, verdict):
-        try:
-            src.unlink()
-            log.info("deleted no-RAW source after verified enhance: %s", src)
-        except OSError as exc:
-            log.warning("failed to delete no-RAW source %s: %s", src, exc)
-    elif photo.action == "enhance_only" and verdict.degraded:
-        log.error(
-            "KEEPING source RAW for %s: result degraded (%s). Inspect %s.",
-            src.name,
-            ",".join(verdict.reasons),
-            out,
-        )
-    return out
-
-
 @dataclass(frozen=True)
 class EnhanceSummary:
     enhanced: int = 0
@@ -261,33 +142,7 @@ class EnhanceSummary:
 
 
 def run_enhancement() -> EnhanceSummary:
+    from app.enhancement.batch import run_batch  # local: batch imports this module
+
     warmup()
-    items = _candidates()
-    if not items:
-        console.print("[yellow]No photos to enhance.[/yellow]")
-        return EnhanceSummary()
-    console.print(f"[cyan]Enhancing {len(items)} photo(s).[/cyan]")
-    enhanced = skipped = failed = 0
-    with Progress() as progress:
-        task = progress.add_task("enhance", total=len(items))
-        for photo, face_boxes in items:
-            try:
-                out = _enhance_one(photo, face_boxes)
-            except Exception:  # noqa: BLE001 — one bad frame must not sink the batch
-                failed += 1
-                log.exception("enhance failed for %s; source left in place", photo.source_path)
-                console.print(f"  [red]x {Path(photo.source_path).name}: see log[/red]")
-            else:
-                if out:
-                    enhanced += 1
-                    console.print(f"  -> {out}")
-                else:
-                    skipped += 1
-            progress.advance(task)
-    summary = EnhanceSummary(enhanced=enhanced, skipped=skipped, failed=failed)
-    colour = "red" if failed else "green"
-    console.print(
-        f"[{colour}]Enhancement complete:[/{colour}] "
-        f"enhanced={enhanced} skipped={skipped} failed={failed}"
-    )
-    return summary
+    return run_batch(_candidates())

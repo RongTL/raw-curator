@@ -36,7 +36,7 @@ from app.enhancement.classical import (
 from app.enhancement.colorspace import linear_rec2020_to_srgb_u8, srgb_u8_to_linear_rec2020
 from app.enhancement.denoise import scunet_denoise
 from app.enhancement.downsample import scale as lanczos_scale
-from app.enhancement.engine.plan import EnhancementPlan
+from app.enhancement.engine.plan import EnhancementPlan, StepSpec
 from app.enhancement.face_restore import codeformer_restore
 from app.enhancement.tone_balance import recover_backlit
 from app.enhancement.upsample_final import upsample_final
@@ -147,26 +147,43 @@ def _apply_ai(name: str, rgb_u8: Array, params: Mapping[str, Any], has_faces: bo
     raise ValueError(f"unknown AI step: {name}")
 
 
+def apply_pre_ai(img: Array, plan: EnhancementPlan) -> Array:
+    """Pre-AI classical steps, applied to float32 linear RGB at native resolution."""
+    for step in plan.steps:
+        if step.name in _PRE_AI:
+            log.info("engine[pre-AI]  %s %s -- %s", step.name, step.params, step.reason)
+            img = _apply_classical(step.name, img, step.params)
+    return img
+
+
+def apply_post_ai(img: Array, plan: EnhancementPlan) -> Array:
+    """Post-AI classical steps, returning clipped float32 RGB in [0, 1]."""
+    for step in plan.steps:
+        if step.name in _POST_AI:
+            log.info("engine[post-AI] %s %s -- %s", step.name, step.params, step.reason)
+            img = _apply_classical(step.name, img, step.params)
+    return np.clip(img, 0.0, 1.0).astype(np.float32)
+
+
+def ai_steps(plan: EnhancementPlan) -> list[StepSpec]:
+    """The plan's AI steps, in order."""
+    return [s for s in plan.steps if s.name in _AI]
+
+
 def run_plan(
     rgb_f01: Array,
     plan: EnhancementPlan,
     native_size: tuple[int, int],
 ) -> Array:
     """Execute the plan, returning float32 RGB in [0, 1] at native_size (W, H)."""
-    img = np.clip(rgb_f01, 0.0, 1.0).astype(np.float32)
+    img = apply_pre_ai(rgb_f01, plan)
 
-    # Pass 1: pre-AI classical steps at full native resolution.
-    for step in plan.steps:
-        if step.name in _PRE_AI:
-            log.info("engine[pre-AI]  %s %s -- %s", step.name, step.params, step.reason)
-            img = _apply_classical(step.name, img, step.params)
-
-    ai_steps = [s for s in plan.steps if s.name in _AI]
-    if ai_steps:
+    ai = ai_steps(plan)
+    if ai:
         u8 = _to_u8(img)
         if settings.enhance_ai_scale < 0.999:
             u8 = lanczos_scale(u8, settings.enhance_ai_scale)
-        for step in ai_steps:
+        for step in ai:
             log.info("engine[ai]      %s %s -- %s", step.name, step.params, step.reason)
             u8 = _apply_ai(step.name, u8, step.params, plan.has_faces)
             _free_gpu()
@@ -180,10 +197,4 @@ def run_plan(
             u8 = upsample_final(u8, native_size)
             img = _from_u8(u8)
 
-    # Pass 2: post-AI classical steps at native resolution.
-    for step in plan.steps:
-        if step.name in _POST_AI:
-            log.info("engine[post-AI] %s %s -- %s", step.name, step.params, step.reason)
-            img = _apply_classical(step.name, img, step.params)
-
-    return np.clip(img, 0.0, 1.0).astype(np.float32)
+    return apply_post_ai(img, plan)

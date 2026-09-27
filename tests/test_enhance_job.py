@@ -89,31 +89,30 @@ def test_load_linear_float_reads_16bit_rgb_tiff(tmp_path: Path) -> None:
     assert out.dtype == np.float32 and abs(float(out[0, 0, 0]) - 0.5) < 1e-3
 
 
-def test_run_enhancement_keeps_going_after_one_photo_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_run_enhancement_delegates_to_run_batch(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.enhancement import enhance_job
+    from app.enhancement import batch, enhance_job
 
     photos = [
         (enhance_job.PhotoCandidate("bad", "/x/bad.cr3", "raw", "enhance_only"), []),
         (enhance_job.PhotoCandidate("ok", "/x/ok.cr3", "raw", "enhance_only"), []),
     ]
-    seen: list[str] = []
+    expected = enhance_job.EnhanceSummary(enhanced=1, skipped=0, failed=1)
+    received: list[object] = []
 
-    def fake_enhance_one(photo: enhance_job.PhotoCandidate, faces: list[object]) -> Path | None:
-        seen.append(photo.hash)
-        if photo.hash == "bad":
-            raise RuntimeError("darktable-cli exploded")
-        return tmp_path / "ok.tif"
+    def fake_run_batch(items: list[object], **kw: object) -> enhance_job.EnhanceSummary:
+        received.append(items)
+        return expected
 
     monkeypatch.setattr(enhance_job, "warmup", lambda: None)
     monkeypatch.setattr(enhance_job, "_candidates", lambda: photos)
-    monkeypatch.setattr(enhance_job, "_enhance_one", fake_enhance_one)
+    monkeypatch.setattr(batch, "run_batch", fake_run_batch)
 
     summary = enhance_job.run_enhancement()
 
-    assert seen == ["bad", "ok"]
-    assert (summary.enhanced, summary.skipped, summary.failed) == (1, 0, 1)
+    assert summary is expected
+    assert received == [photos]
 
 
 def test_preview_size_missing_file_means_no_faces(tmp_path: Path) -> None:
