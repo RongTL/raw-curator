@@ -11,7 +11,7 @@ list is ordered per spec §7:
     5. Noise reduction         (AI: SCUNet)
     6. Sharpening              (AI: Real-ESRGAN + classical unsharp)
     7. Local contrast enhancement (CLAHE)
-    8. Final tone mapping
+    8. (tone mapping is darktable's job; not planned here)
 
 Quality-first defaults (matched to a RTX 2060 6 GB / R3 3100 24 GB box):
 - AI steps are considered when their indicator metric is above the spec
@@ -200,15 +200,6 @@ def plan_from_report(
                 reason="default local-contrast polish",
             )
         )
-
-    # §7.8 Final tone map
-    steps.append(
-        StepSpec(
-            name="tone_map_final",
-            params={"shoulder": 0.88, "toe": 0.02},
-            reason="final filmic polish",
-        )
-    )
 
     note = f"Q={report.score_q:.1f}; steps={len(steps)}"
     return EnhancementPlan(steps=tuple(steps), report=report, has_faces=has_faces, note=note)

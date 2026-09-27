@@ -48,7 +48,7 @@ def test_balanced_input_plan_is_minimal() -> None:
     plan = plan_from_report(_baseline(), has_faces=False)
     names = _step_names(plan)
     assert "realesrgan_upscale" in names
-    assert names[-1] == "tone_map_final"
+    assert "tone_map_final" not in names
     assert "exposure_gamma" not in names
     assert "shadow_lift" not in names
 
@@ -127,7 +127,7 @@ def test_plan_order_matches_spec_section_7() -> None:
         "saturation_adjust",
     }
     ai = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
-    post = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}
+    post = {"unsharp_mask", "clahe_local_contrast"}
 
     plan = plan_from_report(
         _baseline(
@@ -172,3 +172,8 @@ def test_backlit_switch_off_skips_backlit_recover_even_when_bimodal() -> None:
         _baseline(shadow_clip=0.25, highlight_clip=0.15), backlit_recovery=False
     )
     assert "backlit_recover" not in _step_names(plan)
+
+
+def test_tone_map_is_never_planned() -> None:
+    for report in (_baseline(), _baseline(mean_luma=60.0), _baseline(highlight_clip=0.2)):
+        assert "tone_map_final" not in _step_names(plan_from_report(report))

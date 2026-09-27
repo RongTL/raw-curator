@@ -74,7 +74,7 @@ _PRE_AI = {
     "saturation_adjust",
 }
 _AI = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
-_POST_AI = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}
+_POST_AI = {"unsharp_mask", "clahe_local_contrast"}
 
 
 def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Array:
