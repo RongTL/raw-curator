@@ -32,6 +32,15 @@ def _noisy(value: float, sigma: float, h: int = 256, w: int = 256, seed: int = 0
     return np.clip(base + rng.normal(0, sigma, base.shape).astype(np.float32), 0.0, 1.0)
 
 
+def test_luma_u8_uses_the_shared_srgb_encoder() -> None:
+    from app.enhancement.colorspace import encode_srgb, luma
+    from app.enhancement.engine.metrics import luma_u8
+
+    img = _noisy(0.4, 0.05, 32, 32)
+    expected = (encode_srgb(luma(img)) * 255.0 + 0.5).astype(np.uint8)
+    assert np.array_equal(luma_u8(img), expected)
+
+
 def test_exposure_metrics_on_midgray() -> None:
     m = exposure_metrics(_gray(0.5))
     assert m["shadow_clip"] == 0.0

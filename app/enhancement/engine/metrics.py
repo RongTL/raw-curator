@@ -22,6 +22,7 @@ import numpy as np
 
 from app.arrays import Array
 from app.enhancement.colorspace import (
+    encode_srgb,
     linear_srgb_to_oklab,
     luma,
     rec2020_to_srgb_linear,
@@ -44,7 +45,7 @@ def as_linear_float01(img: Array) -> Array:
     """Normalize uint8 / uint16 / float to float32 [0, 1].
 
     Values are taken as linear light; the sRGB encoding for the spec's 8-bit
-    thresholds happens in _luma_u8.
+    thresholds happens in luma_u8.
     """
     if img.dtype == np.float32:
         return np.clip(img, 0.0, 1.0)
@@ -57,24 +58,9 @@ def as_linear_float01(img: Array) -> Array:
     raise TypeError(f"unsupported dtype {img.dtype} for quality measurement")
 
 
-def linear_to_srgb_u8(rgb_f01: Array) -> Array:
-    """Encode linear-light float to sRGB-gamma 8-bit (matches what a viewer shows)."""
-    a = 0.055
-    f = np.clip(rgb_f01, 0.0, 1.0)
-    low = f <= 0.0031308
-    out = np.where(low, 12.92 * f, (1.0 + a) * np.power(np.maximum(f, 1e-6), 1.0 / 2.4) - a)
-    return (out * 255.0 + 0.5).astype(np.uint8)
-
-
-def _luma_u8(rgb_f01: Array) -> Array:
-    lum = luma(rgb_f01)
-    # sRGB-encode the single-channel luma directly.
-    a = 0.055
-    f = np.clip(lum, 0.0, 1.0)
-    enc = np.where(
-        f <= 0.0031308, 12.92 * f, (1.0 + a) * np.power(np.maximum(f, 1e-6), 1.0 / 2.4) - a
-    )
-    return (enc * 255.0 + 0.5).astype(np.uint8)
+def luma_u8(rgb_f01: Array) -> Array:
+    """sRGB-encoded 8-bit luma, via the one shared OETF in ``colorspace.encode_srgb``."""
+    return (encode_srgb(luma(rgb_f01)) * 255.0 + 0.5).astype(np.uint8)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +69,7 @@ def _luma_u8(rgb_f01: Array) -> Array:
 
 
 def exposure_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01)
+    lum = luma_u8(rgb_f01)
     hist = np.bincount(lum.ravel(), minlength=256).astype(np.float64)
     total = float(hist.sum())
     if total <= 0:
@@ -122,7 +108,7 @@ def exposure_metrics(rgb_f01: Array) -> dict[str, float]:
 
 
 def dynamic_range_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01).astype(np.float32)
+    lum = luma_u8(rgb_f01).astype(np.float32)
     p5, p95 = np.percentile(lum, [5, 95])
     dr = float(p95 - p5)
     height, width = lum.shape
@@ -234,7 +220,7 @@ def color_metrics(
 
 
 def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01)
+    lum = luma_u8(rgb_f01)
     try:
         import cv2
 
@@ -312,7 +298,7 @@ def _conv2d_same(img: Array, kernel: Array) -> Array:
 
 
 def noise_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01)
+    lum = luma_u8(rgb_f01)
     luma_noise = _flat_patch_std(lum)
 
     try:

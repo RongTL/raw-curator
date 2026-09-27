@@ -24,7 +24,7 @@ from app.enhancement.develop_full import darktable_cli, read_icc_profile
 from app.enhancement.downsample import resize_float
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
-from app.enhancement.engine.metrics import _luma_u8
+from app.enhancement.engine.metrics import luma_u8
 from app.enhancement.engine.plan import EnhancementPlan, FaceInfo, QualityReport, StepSpec
 from app.enhancement.engine.runner import (
     ai_steps,
@@ -101,7 +101,7 @@ def _face_infos(img: Array, boxes: list[FaceBox]) -> list[FaceInfo]:
         if x1 <= x0 or y1 <= y0:
             continue
         crop = img[y0:y1, x0:x1]
-        lap = cv2.Laplacian(_luma_u8(crop), ddepth=cv2.CV_32F, ksize=3)
+        lap = cv2.Laplacian(luma_u8(crop), ddepth=cv2.CV_32F, ksize=3)
         faces.append(FaceInfo((x0, y0, x1 - x0, y1 - y0), float(lap.var())))
     return faces
 
