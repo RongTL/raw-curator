@@ -36,6 +36,10 @@ def _strength_from_deficit(metric: float, low: float, high: float) -> float:
 def plan_from_report(
     report: QualityReport,
     has_faces: bool = False,
+    *,
+    denoise: bool = True,
+    face_restore: bool = True,
+    backlit_recovery: bool = True,
     enhance_codeformer_w: float = 0.85,
     enhance_realesrgan_fidelity: float = 0.7,
     enhance_denoise_strength: float = 0.75,
@@ -45,7 +49,7 @@ def plan_from_report(
     steps: list[StepSpec] = []
 
     # §1 Exposure (also runs the existing backlit detector if bimodal)
-    if report.shadow_clip >= 0.18 and report.highlight_clip >= 0.10:
+    if backlit_recovery and report.shadow_clip >= 0.18 and report.highlight_clip >= 0.10:
         steps.append(
             StepSpec(
                 name="backlit_recover",
@@ -142,7 +146,7 @@ def plan_from_report(
 
     # §5 Noise (must come before §4 sharpening per §7)
     n = max(report.luma_noise, report.chroma_noise * 0.5)
-    if n > 2.0:
+    if denoise and n > 2.0:
         strength = max(enhance_denoise_strength * 0.6, min(0.95, 0.5 + (n - 2.0) * 0.05))
         steps.append(
             StepSpec(
@@ -160,7 +164,7 @@ def plan_from_report(
             reason="default detail-recovery x2",
         )
     )
-    if has_faces:
+    if has_faces and face_restore:
         steps.append(
             StepSpec(
                 name="codeformer_restore",

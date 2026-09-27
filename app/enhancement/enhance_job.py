@@ -169,6 +169,9 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
     plan = plan_from_report(
         report,
         has_faces=bool(face_boxes),
+        denoise=settings.enhance_denoise,
+        face_restore=settings.enhance_face_restore,
+        backlit_recovery=settings.enhance_backlit_recovery,
         enhance_codeformer_w=settings.enhance_codeformer_w,
         enhance_realesrgan_fidelity=settings.enhance_realesrgan_fidelity,
         enhance_denoise_strength=settings.enhance_denoise_strength,
