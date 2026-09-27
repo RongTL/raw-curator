@@ -30,8 +30,9 @@ For each batch:
 3. **Score** — CLIP ViT-L/14 + aesthetic-predictor v2.5 + MUSIQ + MANIQA
    + InsightFace, all FP16 on a single GPU worker, stage-by-stage to fit
    6 GB VRAM.
-4. **Cluster** — EXIF burst → pHash dedupe → CLIP cosine via HDBSCAN; one
-   recommendation per cluster.
+4. **Cluster** — EXIF burst grouping, then CLIP HDBSCAN across the rest of
+   the batch; one recommendation per cluster (ranked 0.6·technical +
+   0.4·aesthetic).
 5. **Review** — the Control Center (FastAPI + a single-page React UI,
    CDN, no Node build) shows a stage timeline and a review panel
    (All/Clusters views). Stage decisions per photo with keyboard
@@ -144,19 +145,20 @@ make reset
 |-------------------|-----------------------------------------------------------------|
 | `image`           | `podman build -t raw-curator:latest -f Containerfile .`          |
 | `download-models` | Fetches CLIP, SigLIP, Real-ESRGAN, SCUNet, CodeFormer, InsightFace into `models/` |
-| `reset`           | Drops DB + clears `cache/` + clears `photos/{library,archive,quarantine,exported,jpeg}/`; runs `alembic upgrade head` |
+| `reset`           | `raw-curator reset --force`: drops DB, empties `cache/{previews,thumbs}/` and `photos/{library,exported,jpeg}/`, runs `alembic upgrade head` |
 | `ingest`          | Walk `photos/incoming/` → DB rows + previews + thumbs           |
 | `filter`          | Blur / pHash / exposure                                         |
 | `score`           | GPU scoring: CLIP, IQA, faces (stage-by-stage)                  |
-| `cluster`         | EXIF burst + pHash dedupe + CLIP HDBSCAN + recommendation       |
+| `cluster`         | EXIF burst + CLIP HDBSCAN + recommendation                      |
 | `run`             | `ingest → filter → score → cluster` in one shot (no UI)         |
 | `serve`           | Control Center UI on `http://0.0.0.0:8080` — runs every stage, streams logs, live resource monitor |
 | `submit`          | Apply staged decisions (file moves) outside the UI              |
 | `enhance`         | Auto Enhancement Engine: RAW → classical + AI → 16-bit TIFF for every decided photo |
 | `export-jpeg`     | RAWs (`library/`) and TIFFs (`exported/`) → share-ready JPEGs in `photos/jpeg/` |
 | `shell`           | Drop into a bash shell inside the container                     |
-| `test`            | `pytest -q` inside the container                                |
-| `lint`            | `ruff check app/ tests/`                                        |
+| `test`            | `pytest -q` inside the container; `app/` and `tests/` are bind-mounted from the working tree, so no rebuild is needed |
+| `lint`            | `ruff check` + `ruff format --check` over `app/ tests/ scripts/` |
+| `format`          | `ruff format app/ tests/ scripts/` (rewrites files)              |
 | `typecheck`       | `mypy app/`                                                     |
 | `clean`           | `podman compose down -v` and remove the image                   |
 
@@ -168,8 +170,6 @@ make reset
 photos/
   incoming/      <- drop RAWs here at session start; `no` RAWs stay here until enhance deletes them
   library/       <- `yes` RAWs (kept untouched)
-  archive/       <- legacy bucket; created + wiped by `make reset`, no longer populated by routing
-  quarantine/    <- legacy bucket; created + wiped by `make reset`, no longer populated by routing
   exported/      <- enhanced 16-bit TIFFs (one per decided photo)
   jpeg/          <- share-ready 8-bit JPEGs from `make export-jpeg` (optional)
 

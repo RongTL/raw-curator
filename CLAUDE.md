@@ -26,9 +26,11 @@ make submit           # apply staged decisions (moves files on disk)
 make enhance          # AI chain for the enhance_export set (RAW → 16-bit TIFF)
 make export-jpeg      # share-ready JPEGs from library RAWs and exported TIFFs
 
-# Dev loop
+# Dev loop (app/, tests/ and pyproject.toml are bind-mounted from the working
+# tree, so these run against your edits without rebuilding the image)
 make test             # pytest -q inside the container
-make lint             # ruff check app/ tests/
+make lint             # ruff check + ruff format --check (app/ tests/ scripts/)
+make format           # ruff format (rewrites files)
 make typecheck        # mypy app/
 make shell            # bash inside the app container
 ```
@@ -55,8 +57,8 @@ The CLI is also reachable directly inside the container: `raw-curator ingest|fil
 1. **ingest** (`app/ingest/`) — walks `photos/incoming/`, computes xxh3 hash, extracts EXIF via `exiftool`, decodes RAW via `rawpy` (and HEIC via `pillow-heif`), writes a 512 px thumb + 3000 px preview JPEG into `cache/`. Records `file_kind` (`raw`/`jpeg`/`tiff`/`heic`/`png`) per photo — downstream stages branch on this.
 2. **filter** (`app/filters/`) — CPU-only Laplacian blur variance, pHash/dHash, exposure histogram flags.
 3. **score** (`app/scoring/` + `app/embedding/`) — GPU stage. CLIP ViT-L/14 + aesthetic-predictor v2.5 + MUSIQ + MANIQA + InsightFace. Runs **stage-by-stage** (`stage=clip|iqa|faces|all`), freeing CUDA between stages so it fits a 6 GB RTX 2060.
-4. **cluster** (`app/clustering/`) — EXIF burst grouping → pHash dedupe within burst → CLIP cosine + HDBSCAN across the batch → one recommended photo per cluster.
-5. **serve** (`app/api/` + `app/ui/`) — FastAPI app exposing `/api/{queue,photo,cluster,decide,submit}` plus the static SPA from `app/api/static/`. The UI is plain HTML/JS using CDN-hosted React (no Node build step). Decisions are staged in the `decisions` table; nothing moves on disk until **Submit**. The review header also exposes a bulk **"don't keep any RAW"** control backed by `POST /api/decide/all`, which stages every photo as `no` (enhance_only) in one transaction via `app/decision/bulk.py::stage_all` (skipping already-applied rows).
+4. **cluster** (`app/clustering/`) — EXIF burst grouping → CLIP HDBSCAN over the not-yet-clustered rest → one recommended photo per cluster (`recommend.rank`). pHash/dHash are computed in filter and exposed in the API but do not drive clustering.
+5. **serve** (`app/api/`) — FastAPI app exposing `/api/{queue,photo,cluster,decide}` plus the static SPA from `app/api/static/`. The UI is plain HTML/JS using CDN-hosted React (no Node build step). Decisions are staged in the `decisions` table; nothing moves on disk until **Submit**. The review header also exposes a bulk **"don't keep any RAW"** control backed by `POST /api/decide/all`, which stages every photo as `no` (enhance_only) in one transaction via `app/decision/bulk.py::stage_all` (skipping already-applied rows).
    Since the control-center rework, `serve` is the primary entry point: the UI
    (pipeline timeline + context panel) can run every stage itself. New pieces:
    `app/orchestrator/` (subprocess-per-stage `JobRunner` with a single global
