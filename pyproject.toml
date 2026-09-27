@@ -72,6 +72,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Real RAWs and scratch review artefacts live under tests/data (gitignored); never lint them.
+extend-exclude = ["tests/data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
