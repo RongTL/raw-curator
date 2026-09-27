@@ -21,7 +21,12 @@ from collections.abc import Sequence
 import numpy as np
 
 from app.arrays import Array
-from app.enhancement.colorspace import luma, rgb_to_ycbcr
+from app.enhancement.colorspace import (
+    linear_srgb_to_oklab,
+    luma,
+    rec2020_to_srgb_linear,
+    rgb_to_ycbcr,
+)
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +173,14 @@ def color_metrics(
     avg_sat = float(sat.mean())
     oversat = float((sat > 0.85).mean())
 
+    # Perceptual chroma: mean OKLCh chroma over a 4x-subsampled frame (the metric
+    # is a global average, so every 16th pixel is plenty and keeps the two matrix
+    # mults cheap). Monochrome intent shows up as mean_chroma < 0.01, which gates
+    # the saturation boost in the planner.
+    sub = rgb_f01[::4, ::4]
+    oklab = linear_srgb_to_oklab(rec2020_to_srgb_linear(sub))
+    mean_chroma = float(np.mean(np.sqrt(oklab[..., 1] ** 2 + oklab[..., 2] ** 2)))
+
     # White balance is estimated from near-neutral pixels only, so a warm sky
     # or tungsten glow can't be mistaken for a colour cast (Task 22).
     neutral = neutral_mask(rgb_f01)
@@ -211,6 +224,7 @@ def color_metrics(
         "neutral_fraction": neutral_fraction,
         "rg_neutral": rg_neutral,
         "bg_neutral": bg_neutral,
+        "mean_chroma": mean_chroma,
     }
 
 
@@ -233,6 +247,12 @@ def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
         lap = _conv2d_same(lum.astype(np.float32), kernel)
         lap_var = float(lap.var())
         edge_density = float((np.abs(lap) > 24).mean())
+
+    # Subject-focused sharpness: variance of the Laplacian per 16x16 block, then
+    # the mean of the sharpest quartile. On a bokeh portrait the global lap_var is
+    # dragged down by the creamy background, but lap_var_top stays high where the
+    # in-focus subject sits — so the planner won't unsharp a soft background.
+    lap_var_top = _lap_var_top(lap, lap_var)
 
     # FFT high-frequency energy on a downscaled luma (24 MP FFT is wasteful).
     height, width = lum.shape
@@ -257,7 +277,22 @@ def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
         "lap_var": lap_var,
         "edge_density": edge_density,
         "hf_energy": hf_energy,
+        "lap_var_top": lap_var_top,
     }
+
+
+def _lap_var_top(lap: Array, fallback: float) -> float:
+    """Mean of the top-quartile 16x16 block variances of a Laplacian map."""
+    height, width = lap.shape
+    bh = height // 16
+    bw = width // 16
+    if bh == 0 or bw == 0:
+        return fallback
+    blocks = lap[: bh * 16, : bw * 16].reshape(bh, 16, bw, 16)
+    block_var = blocks.var(axis=(1, 3)).ravel()
+    cut = np.percentile(block_var, 75)
+    top = block_var[block_var >= cut]
+    return float(top.mean()) if top.size else fallback
 
 
 def _conv2d_same(img: Array, kernel: Array) -> Array:

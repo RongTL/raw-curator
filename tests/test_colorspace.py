@@ -8,6 +8,7 @@ from app.enhancement.colorspace import (
     decode_srgb,
     encode_srgb,
     linear_rec2020_to_srgb_u8,
+    linear_srgb_to_oklab,
     luma,
     rec2020_to_srgb_linear,
     rgb_to_ycbcr,
@@ -48,6 +49,19 @@ def test_gamut_matrices_are_inverses_and_keep_white() -> None:
     assert np.allclose(rec2020_to_srgb_linear(white), white, atol=2e-3)
     rng = np.random.default_rng(1).random((4, 5, 3), dtype=np.float32)
     assert np.allclose(srgb_to_rec2020_linear(rec2020_to_srgb_linear(rng)), rng, atol=1e-4)
+
+
+def test_oklab_white_is_neutral_and_red_is_chromatic() -> None:
+    white = np.ones((1, 1, 3), dtype=np.float32)
+    lab = linear_srgb_to_oklab(white)
+    assert abs(float(lab[0, 0, 0]) - 1.0) < 1e-3  # L ~ 1
+    assert abs(float(lab[0, 0, 1])) < 1e-3  # a ~ 0
+    assert abs(float(lab[0, 0, 2])) < 1e-3  # b ~ 0
+    red = np.zeros((1, 1, 3), dtype=np.float32)
+    red[..., 0] = 1.0
+    lab_r = linear_srgb_to_oklab(red)
+    chroma = float(np.hypot(lab_r[0, 0, 1], lab_r[0, 0, 2]))
+    assert chroma > 0.2
 
 
 def test_u8_boundary_round_trip_is_within_one_code() -> None:

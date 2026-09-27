@@ -98,6 +98,13 @@ def test_sharpness_higher_on_edges() -> None:
     assert m["lap_var"] > 100.0
 
 
+def test_lap_var_top_exceeds_global_on_a_half_sharp_frame() -> None:
+    img = np.zeros((64, 64, 3), dtype=np.float32)
+    img[:, 32:] = np.random.default_rng(6).random((64, 32, 3), dtype=np.float32)
+    m = sharpness_metrics(img)
+    assert m["lap_var_top"] > m["lap_var"]
+
+
 def test_noise_increases_with_sigma() -> None:
     quiet = noise_metrics(_gray(0.5))
     loud = noise_metrics(_noisy(0.5, sigma=0.10))

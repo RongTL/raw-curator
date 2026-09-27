@@ -106,6 +106,11 @@ class QualityReport:
     rg_neutral: float | None = None  # r/g over neutral pixels; None if < 2% neutral
     bg_neutral: float | None = None  # b/g over neutral pixels; None if < 2% neutral
 
+    # Task 23 — perceptual chroma + subject-focused sharpness. Appended with
+    # defaults so positional/keyword construction elsewhere keeps working.
+    mean_chroma: float | None = None  # mean OKLCh chroma; monochrome when < 0.01
+    lap_var_top: float | None = None  # mean lap variance of the sharpest 16x16 blocks
+
 
 @dataclass(frozen=True)
 class EnhancementPlan:

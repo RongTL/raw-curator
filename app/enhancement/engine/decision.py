@@ -154,7 +154,11 @@ def plan_from_report(
                 reason=f"avg_sat={report.avg_saturation:.2f}, oversat={report.oversat_ratio:.3f}",
             )
         )
-    elif report.avg_saturation < 0.25:
+    elif report.avg_saturation < 0.25 and (
+        report.mean_chroma is None or report.mean_chroma >= 0.01
+    ):
+        # Skip the boost on a monochrome frame (mean OKLCh chroma < 0.01): a
+        # black-and-white or near-neutral image is an intent, not a defect.
         boost = min(1.25, 1.0 + (0.25 - report.avg_saturation) * 1.0)
         steps.append(
             StepSpec(
@@ -210,19 +214,25 @@ def plan_from_report(
                 reason=f"{len(degraded_faces)} of {len(faces)} faces small/soft",
             )
         )
-    if report.lap_var < 150.0:
-        amt = _strength_from_deficit(150.0 - report.lap_var, 0.0, 120.0) * 0.8 + 0.2
+    # Sharpen on the sharpest region's variance when available, so a crisp subject
+    # against a creamy bokeh background isn't unsharped just because the whole-frame
+    # variance is low.
+    sharp_metric = "lap_var_top" if report.lap_var_top is not None else "lap_var"
+    sharp_var = report.lap_var_top if report.lap_var_top is not None else report.lap_var
+    if sharp_var < 150.0:
+        amt = _strength_from_deficit(150.0 - sharp_var, 0.0, 120.0) * 0.8 + 0.2
         steps.append(
             StepSpec(
                 name="unsharp_mask",
                 params={"amount": amt, "radius": 1.4, "threshold": 0.006},
-                reason=f"lap_var={report.lap_var:.1f}",
+                reason=f"{sharp_metric}={sharp_var:.1f}",
             )
         )
 
-    # §7.7 Local contrast
-    if report.dr_p95_p5 < 150.0 and report.local_dr_mean < 80.0:
-        clip = 1.6 + _strength_from_deficit(80.0 - report.local_dr_mean, 0.0, 50.0) * 1.4
+    # §7.7 Local contrast — skipped entirely when a face is present (CLAHE
+    # harshens skin) and the clip capped at 2.0 so it stays a gentle polish.
+    if not faces and report.dr_p95_p5 < 150.0 and report.local_dr_mean < 80.0:
+        clip = min(2.0, 1.6 + _strength_from_deficit(80.0 - report.local_dr_mean, 0.0, 50.0) * 1.4)
         steps.append(
             StepSpec(
                 name="clahe_local_contrast",
@@ -230,7 +240,7 @@ def plan_from_report(
                 reason=f"local_dr_mean={report.local_dr_mean:.1f} (flat)",
             )
         )
-    elif report.dr_p95_p5 < 150.0:
+    elif not faces and report.dr_p95_p5 < 150.0:
         steps.append(
             StepSpec(
                 name="clahe_local_contrast",

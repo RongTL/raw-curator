@@ -13,6 +13,11 @@ EXPECT: dict[str, dict[str, object]] = {
         "absent": {"white_balance"}
     },  # near-neutral fraction 0.0014 < 2% -> no neutral estimate, no WB
     "IMG_1176": {
-        "absent": {"white_balance"}
-    },  # neutral cast 0.039 < 0.12 over 6.5% neutral -> mood preserved, no WB
+        "absent": {"white_balance"},
+        "clahe_max": 2.0,
+    },  # neutral cast 0.039 < 0.12 over 6.5% neutral -> mood preserved, no WB; CLAHE capped at 2.0
+    "IMG_1158": {
+        "absent": {"clahe_local_contrast"},
+        "faces": [(3114, 1450, 552, 856)],
+    },  # portrait: a face is present, so local-contrast CLAHE is skipped entirely
 }

@@ -100,6 +100,8 @@ def score_report(metrics: Mapping[str, float | None]) -> QualityReport:
     neutral_fraction = metrics.get("neutral_fraction")
     rg_neutral = metrics.get("rg_neutral")
     bg_neutral = metrics.get("bg_neutral")
+    mean_chroma = metrics.get("mean_chroma")
+    lap_var_top = metrics.get("lap_var_top")
     return QualityReport(
         mean_luma=float(m["mean_luma"]),
         shadow_clip=float(m["shadow_clip"]),
@@ -127,4 +129,6 @@ def score_report(metrics: Mapping[str, float | None]) -> QualityReport:
         neutral_fraction=(float(neutral_fraction) if neutral_fraction is not None else 0.0),
         rg_neutral=(float(rg_neutral) if rg_neutral is not None else None),
         bg_neutral=(float(bg_neutral) if bg_neutral is not None else None),
+        mean_chroma=(float(mean_chroma) if mean_chroma is not None else None),
+        lap_var_top=(float(lap_var_top) if lap_var_top is not None else None),
     )

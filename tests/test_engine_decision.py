@@ -120,6 +120,28 @@ def test_undersaturated_triggers_boost() -> None:
     assert "saturation_adjust" in _step_names(plan)
 
 
+def test_monochrome_image_gets_no_saturation_boost() -> None:
+    plan = plan_from_report(_baseline(avg_saturation=0.05, mean_chroma=0.002))
+    assert "saturation_adjust" not in _step_names(plan)
+
+
+def test_clahe_is_capped_and_skipped_for_portraits() -> None:
+    flat = _baseline(dr_p95_p5=100.0, local_dr_mean=40.0)
+    clip = next(s for s in plan_from_report(flat).steps if s.name == "clahe_local_contrast").params[
+        "clip_limit"
+    ]
+    assert clip <= 2.0
+    assert "clahe_local_contrast" not in _step_names(
+        plan_from_report(flat, faces=[FaceInfo((0, 0, 900, 900), 400.0)])
+    )
+
+
+def test_bokeh_portrait_is_not_sharpened_globally() -> None:
+    # whole-frame variance low (creamy background) but the sharpest blocks are crisp
+    plan = plan_from_report(_baseline(lap_var=60.0, lap_var_top=420.0))
+    assert "unsharp_mask" not in _step_names(plan)
+
+
 def test_noisy_input_triggers_scunet() -> None:
     plan = plan_from_report(_baseline(luma_noise=6.0))
     assert "scunet_denoise" in _step_names(plan)

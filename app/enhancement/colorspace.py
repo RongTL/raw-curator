@@ -67,6 +67,39 @@ def decode_srgb(enc: Array) -> Array:
     return np.where(f <= 0.04045, f / 12.92, np.power((f + 0.055) / 1.055, 2.4)).astype(np.float32)
 
 
+# OKLab (Björn Ottosson): linear sRGB -> LMS (M1), per-channel cube root,
+# LMS' -> Lab (M2). Used for a perceptual chroma metric; not a round-trip.
+_LINEAR_SRGB_TO_LMS = np.array(
+    [
+        [0.4122214708, 0.5363325363, 0.0514459929],
+        [0.2119034982, 0.6806995451, 0.1073969566],
+        [0.0883024619, 0.2817188376, 0.6299787005],
+    ],
+    dtype=np.float32,
+)
+_LMS_TO_OKLAB = np.array(
+    [
+        [0.2104542553, 0.7936177850, -0.0040720468],
+        [1.9779984951, -2.4285922050, 0.4505937099],
+        [0.0259040371, 0.7827717662, -0.8086757660],
+    ],
+    dtype=np.float32,
+)
+
+
+def linear_srgb_to_oklab(lin_srgb: Array) -> Array:
+    """Linear sRGB primaries -> OKLab (Ottosson) on HxWx3 float; no clipping.
+
+    Two 3x3 mults around a per-channel cube root: linear sRGB -> LMS, cbrt,
+    LMS' -> Lab. ``np.cbrt`` keeps the sign for the small negative LMS values a
+    wide-gamut (Rec.2020) source can land after the sRGB matrix. Returns
+    (L, a, b) where white is (~1, ~0, ~0) and chroma is ``hypot(a, b)``.
+    """
+    lms = lin_srgb @ _LINEAR_SRGB_TO_LMS.T
+    lms_cbrt = np.cbrt(lms)
+    return (lms_cbrt @ _LMS_TO_OKLAB.T).astype(np.float32)
+
+
 def rec2020_to_srgb_linear(lin: Array) -> Array:
     """Linear Rec.2020 -> linear sRGB primaries on HxWx3 float; no clipping."""
     return (lin @ REC2020_TO_SRGB.T).astype(np.float32)
