@@ -225,6 +225,23 @@ def _phase2(items: list[WorkItem]) -> None:
             model_cm.__exit__(None, None, None)
 
 
+def _take_retry(
+    primary_q: float, primary_degraded: bool, retry_q: float, retry_degraded: bool
+) -> bool:
+    """Whether the safe-plan retry should replace the primary result.
+
+    Prefer a *trustworthy* result: take the retry when it is not degraded and
+    the primary is; when both share the same degraded state, fall back to
+    quality (the retry wins on a tie). Never trade a clean primary for a
+    degraded retry.
+    """
+    if not retry_degraded and primary_degraded:
+        return True
+    if primary_degraded == retry_degraded:
+        return retry_q >= primary_q
+    return False
+
+
 def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
     assert item.plan is not None and item.report is not None
     src = Path(item.photo.source_path)
@@ -253,7 +270,9 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
         retry_img = run_plan(base, retry, native_size=item.native_size)
         retry_after = score_report(measure_all(retry_img, face_boxes=item.face_boxes or None))
         retry_verdict = verify(item.report, retry_after, retry_img)
-        if retry_after.score_q >= after.score_q:
+        if _take_retry(
+            after.score_q, verdict.degraded, retry_after.score_q, retry_verdict.degraded
+        ):
             result, verdict, plan = retry_img, retry_verdict, retry
     item.plan = plan
     persist_all(item, verdict)

@@ -204,3 +204,13 @@ def test_preview_missing_warns_before_dropping_face_boxes(
         summary = batch.run_batch([(photo, [(10, 10, 20, 20)])], develop=fake_develop)
     assert summary.enhanced == 1
     assert "preview missing" in caplog.text
+
+
+def test_take_retry_prefers_a_trustworthy_retry() -> None:
+    # primary degraded, retry clean -> take it even at a lower Q
+    assert batch._take_retry(80.0, True, 70.0, False) is True
+    # both degraded -> take the retry only if its Q is at least as good
+    assert batch._take_retry(80.0, True, 82.0, True) is True
+    assert batch._take_retry(80.0, True, 70.0, True) is False
+    # primary clean, retry degraded -> never trade a clean result for a bad one
+    assert batch._take_retry(80.0, False, 90.0, True) is False
