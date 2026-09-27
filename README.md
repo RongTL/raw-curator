@@ -47,18 +47,20 @@ For each batch:
    | no       | `enhance_only`     | RAW stays in place (e.g. `incoming/`) | Enhanced TIFF in `photos/exported/`; **original RAW deleted from disk** |
 
 7. **Enhance** — runs on every decided photo (yes or no) via the **Auto
-   Enhancement Engine**. Darktable develops the RAW to a 16-bit linear
-   TIFF; the engine then measures the input across five quality
-   dimensions (exposure, dynamic range, color, sharpness, noise),
-   persists a `quality_reports` row, and builds an ordered plan of
-   classical + AI steps tuned to that photo's measured deficits.
-   Classical steps (exposure/WB/saturation/CLAHE/unsharp/filmic
-   tone-map) run at native resolution in float32; AI steps (SCUNet
-   denoise → Real-ESRGAN x2 → CodeFormer if faces) run on a downscaled
-   copy that fits 6 GB VRAM, then the result is resampled back and
-   written as a 16-bit TIFF to `photos/exported/`. For `no` photos
-   (`action == "enhance_only"`) the source RAW is deleted **after** the
-   TIFF is written — if enhance fails, the original is preserved.
+   Enhancement Engine**. Darktable develops the RAW with its sigmoid
+   workflow into a 16-bit **linear Rec.2020** master (embedded ICC
+   profile + EXIF copied from the source); the engine measures the frame
+   across five quality dimensions (exposure, dynamic range, color,
+   sharpness, noise) and builds a **per-photo recipe** of classical + AI
+   steps tuned to its measured deficits — the recipe is visible in the
+   review UI. Each AI step (SCUNet denoise, Real-ESRGAN when enlarging or
+   the source is small, CodeFormer for small/soft faces) sees an 8-bit
+   sRGB copy but is merged back as a *delta* into the float master, so
+   the 16-bit master is never quantised. Every result passes a
+   verification gate before it is written to `photos/exported/`; for
+   `no` photos (`action == "enhance_only"`) the source RAW is deleted
+   only after the TIFF is written **and** the verdict is not degraded —
+   if enhance fails or degrades the frame, the original is preserved.
    **Only runs on RAW sources** — already-developed JPEG/TIFF/HEIC
    inputs are skipped with a warning since the engine expects sensor
    data, not 8-bit display-referred pixels.

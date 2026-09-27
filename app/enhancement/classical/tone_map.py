@@ -1,14 +1,17 @@
-"""Final tone mapping (spec §7 step 8).
+"""Tone-mapping helpers for the enhancement engine.
 
-A gentle filmic curve with a shoulder for highlights and a toe for
-shadows. Designed to be a no-op-like polish that prevents output
-clipping after the upstream steps have done their work — not a heavy
-HDR look. Applied per channel so it preserves perceived colour at the
-high end (where filmic curves typically desaturate slightly, which is
-the desired film-like behaviour).
+`filmic_tone_map` is a gentle filmic curve (a shoulder for highlights, a
+toe for shadows) kept for the safe-plan / `global_compress` tone path. It
+is no longer planned as a distinct "final tone map" step (spec §7 step 8):
+the planner has not emitted `tone_map_final` since Task 4, because the
+darktable **sigmoid** workflow now provides the output roll-off at develop
+time. Applied per channel, it preserves perceived colour at the high end
+(where filmic curves typically desaturate slightly, which is the desired
+film-like behaviour).
 
 `global_compress` is the §2.4 "excessive dynamic range" remedy and is
-applied earlier in the chain on high-DR inputs.
+applied earlier in the chain on high-DR inputs (planned as the
+`highlight_rolloff` step, which the verifier's safe plan also keeps).
 """
 
 from __future__ import annotations

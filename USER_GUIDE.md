@@ -295,9 +295,9 @@ make submit enhance export-jpeg
 
 For each photo, enhance does the following:
 
-1. **darktable-cli** develops the RAW (using a matching `.xmp` sidecar
-   from `xmp/` if present) to a 16-bit linear TIFF, loaded as float32
-   RGB in `[0, 1]`.
+1. **darktable-cli** develops the RAW with its **sigmoid** workflow
+   (using a matching `.xmp` sidecar from `xmp/` if present) to a 16-bit
+   **linear Rec.2020** TIFF, loaded as float32 RGB in `[0, 1]`.
 2. The engine **measures quality** across five dimensions — exposure,
    dynamic range, color, sharpness, noise — and writes a row into the
    `quality_reports` table (composite Q score + per-dimension
@@ -311,27 +311,44 @@ For each photo, enhance does the following:
    - Pre-AI classical steps at full native resolution in float32
      (e.g. exposure gamma, shadow lift, highlight recover, backlit
      recovery, gray-world WB, saturation, global tone compression).
-   - AI steps at native resolution (`RAWCURATOR_ENHANCE_AI_SCALE`,
-     default `1.0` — a 24 MP image stays ~6k × 4k and peaks around
-     5.5 GB VRAM during SCUNet on a 6 GB card; drop to `0.85`/`0.7`
-     if OOM): SCUNet denoise
+   - AI steps at native resolution by default
+     (`RAWCURATOR_ENHANCE_AI_SCALE`, default `1.0` — a 24 MP image
+     stays ~6k × 4k and peaks around 5.5 GB VRAM during SCUNet on a
+     6 GB card; drop to `0.85`/`0.7` if OOM). Each model runs once
+     over the batch and sees only an 8-bit sRGB copy; the engine then
+     merges just that model's **change (delta)** back into the float
+     master, so the 16-bit master is never quantised. SCUNet denoise
      (blended at `RAWCURATOR_ENHANCE_DENOISE_STRENGTH`, default
-     `0.75`), Real-ESRGAN x2 (blended at
-     `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY`, default `0.7`), and
-     CodeFormer if faces were detected (weight
-     `RAWCURATOR_ENHANCE_CODEFORMER_W`, default `0.85`). VRAM is
-     cleared between models so the 6 GB budget fits one model at a
-     time. The result is Lanczos-upsampled back to native resolution.
+     `0.75`) runs when the frame is noisy; Real-ESRGAN x2 (blended at
+     `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY`, default `0.7`) runs
+     **only when the target enlarges the source or the source is
+     small** (long edge < `RAWCURATOR_ENHANCE_SR_MIN_LONG_EDGE`);
+     CodeFormer (weight `RAWCURATOR_ENHANCE_CODEFORMER_W`, default
+     `0.85`) runs **only on faces that are small or soft**, with an
+     ArcFace identity guard that pastes the original face back if the
+     restored one drifts too far
+     (`RAWCURATOR_ENHANCE_FACE_MIN_SIMILARITY`). Only one model is
+     resident at a time (VRAM is cleared between them), and after the
+     AI pass the frame is resized to `RAWCURATOR_ENHANCE_TARGET_RES`
+     (default `200%`, keeping Real-ESRGAN's 2× output).
    - Post-AI classical steps at native (e.g. unsharp mask, CLAHE
-     local contrast, final filmic tone map).
-5. Write a 16-bit TIFF to `photos/exported/<name>.tif`.
+     local contrast). There is **no** final tone-mapping step — the
+     darktable sigmoid workflow already handled the highlight roll-off
+     at develop time.
+5. **Verify & write** — the engine re-measures the result and compares
+   it to the input. If it degraded the frame (Q dropped, highlights
+   blown, image gone flat/black), it retries once with a *safe plan*
+   (tone steps only, no AI) and keeps whichever result scores higher.
+   The kept result is written as a 16-bit TIFF (embedded ICC profile +
+   EXIF copied from the source) to `photos/exported/<name>.tif`.
 6. **RAW disposition:**
    - `keep_and_enhance` (yes) — the RAW stays in `photos/library/`,
      alongside the new TIFF in `photos/exported/`.
    - `enhance_only` (no) — the source RAW (still in
-     `photos/incoming/`) is **deleted** once the TIFF has been
-     written. If enhance fails before the TIFF lands on disk, the
-     original is preserved.
+     `photos/incoming/`) is **deleted** once the TIFF has been written
+     **and** the verification verdict is not degraded. If enhance
+     fails before the TIFF lands on disk, or the result degraded the
+     frame, the original is preserved.
 
 Performance reference: 24 MP CR3 → ~48 s/photo on RTX 2060 6 GB.
 
