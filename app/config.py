@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     enhance_ai_scale: float = 1.0  # AI sees full native (24MP -> ~6kx4k). Lower to 0.85/0.7 if OOM.
     enhance_target_res: str = "200%"  # Keep Real-ESRGAN's x2 output (12kx8k); preserves AI detail.
+    enhance_sr_min_long_edge: int = 3000  # Real-ESRGAN runs only when enlarging or source smaller
     enhance_denoise: bool = True
     enhance_denoise_strength: float = 0.75  # 1.0 = full SCUNet; <1 keeps natural micro-texture
     enhance_face_restore: bool = True

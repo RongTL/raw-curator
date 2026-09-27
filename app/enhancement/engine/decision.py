@@ -41,6 +41,9 @@ def plan_from_report(
     face_restore: bool = True,
     backlit_recovery: bool = True,
     iso: int | None = None,
+    native_long_edge: int | None = None,
+    target_scale: float = 1.0,
+    sr_min_long_edge: int = 3000,
     enhance_codeformer_w: float = 0.85,
     enhance_realesrgan_fidelity: float = 0.7,
     enhance_denoise_strength: float = 0.75,
@@ -158,14 +161,24 @@ def plan_from_report(
             )
         )
 
-    # §4 Sharpness — Real-ESRGAN always runs (recovers detail after VRAM downscale)
-    steps.append(
-        StepSpec(
-            name="realesrgan_upscale",
-            params={"fidelity": enhance_realesrgan_fidelity},
-            reason="default detail-recovery x2",
-        )
+    # §4 Sharpness — Real-ESRGAN runs only when enlarging (target > native, D3) or the
+    # source is small enough that x2 recovers real detail rather than upsampling noise.
+    needs_sr = target_scale > 1.0 or (
+        native_long_edge is not None and native_long_edge < sr_min_long_edge
     )
+    if needs_sr:
+        reason = (
+            f"enlarging x{target_scale:.2f}"
+            if target_scale > 1.0
+            else f"long edge {native_long_edge} < {sr_min_long_edge}"
+        )
+        steps.append(
+            StepSpec(
+                name="realesrgan_upscale",
+                params={"fidelity": enhance_realesrgan_fidelity},
+                reason=reason,
+            )
+        )
     if has_faces and face_restore:
         steps.append(
             StepSpec(

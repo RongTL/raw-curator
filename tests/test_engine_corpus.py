@@ -39,8 +39,9 @@ def test_plan_matches_expectation(stem: str, tmp_path: Path) -> None:
     raw = CORPUS / f"{stem}.CR3"
     if not raw.exists():
         pytest.skip(f"{raw} not present")
+    img = _develop_linear(raw, tmp_path)
     plan = plan_from_report(
-        score_report(measure_all(_develop_linear(raw, tmp_path))), iso=_iso(raw)
+        score_report(measure_all(img)), iso=_iso(raw), native_long_edge=max(img.shape[:2])
     )
     names = {s.name for s in plan.steps}
     exp = EXPECT[stem]

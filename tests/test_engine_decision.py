@@ -45,12 +45,26 @@ def _step_names(plan) -> list[str]:
 
 
 def test_balanced_input_plan_is_minimal() -> None:
-    plan = plan_from_report(_baseline(), has_faces=False)
+    plan = plan_from_report(_baseline(), has_faces=False, native_long_edge=6000)
     names = _step_names(plan)
-    assert "realesrgan_upscale" in names
+    assert "realesrgan_upscale" not in names
     assert "tone_map_final" not in names
     assert "exposure_gamma" not in names
     assert "shadow_lift" not in names
+
+
+def test_sr_skipped_for_large_source_at_native_target() -> None:
+    plan = plan_from_report(_baseline(), native_long_edge=6000, target_scale=1.0)
+    assert "realesrgan_upscale" not in _step_names(plan)
+
+
+def test_sr_planned_when_enlarging_or_small_source() -> None:
+    assert "realesrgan_upscale" in _step_names(
+        plan_from_report(_baseline(), native_long_edge=6000, target_scale=2.0)
+    )
+    assert "realesrgan_upscale" in _step_names(
+        plan_from_report(_baseline(), native_long_edge=2400, target_scale=1.0)
+    )
 
 
 def test_underexposed_triggers_gamma_lift() -> None:

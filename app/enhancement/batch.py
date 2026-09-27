@@ -86,7 +86,10 @@ class WorkItem:
     out: Path | None = None
 
 
-def plan_for(report: QualityReport, **kw: Any) -> EnhancementPlan:
+def plan_for(report: QualityReport, *, native_size: tuple[int, int], **kw: Any) -> EnhancementPlan:
+    native_long_edge = max(native_size)
+    target = _parse_target(settings.enhance_target_res, native_size)
+    target_scale = max(target) / native_long_edge
     return plan_from_report(
         report,
         denoise=settings.enhance_denoise,
@@ -97,6 +100,9 @@ def plan_for(report: QualityReport, **kw: Any) -> EnhancementPlan:
         enhance_denoise_strength=settings.enhance_denoise_strength,
         backlit_shadow_lift=settings.enhance_backlit_shadow_lift,
         backlit_highlight_protect=settings.enhance_backlit_highlight_protect,
+        native_long_edge=native_long_edge,
+        target_scale=target_scale,
+        sr_min_long_edge=settings.enhance_sr_min_long_edge,
         **kw,
     )
 
@@ -130,7 +136,12 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     size = preview_size(Path(item.photo.preview_path) if item.photo.preview_path else None)
     item.face_boxes = scale_boxes(item.face_boxes, size, (w, h)) if size else []
     item.report = score_report(measure_all(img, face_boxes=item.face_boxes or None))
-    item.plan = plan_for(item.report, has_faces=bool(item.face_boxes), iso=item.photo.iso)
+    item.plan = plan_for(
+        item.report,
+        has_faces=bool(item.face_boxes),
+        iso=item.photo.iso,
+        native_size=item.native_size,
+    )
     item.ai_pending = ai_steps(item.plan)
     persist_all(item)
     img = apply_pre_ai(img, item.plan)
