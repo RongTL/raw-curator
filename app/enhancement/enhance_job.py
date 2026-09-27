@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
@@ -32,9 +33,11 @@ from PIL import Image
 from rich.console import Console
 from rich.progress import Progress
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import session_scope
+from app.decision.rules import ENHANCE_ACTIONS
 from app.enhancement.develop_full import darktable_cli
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
@@ -48,8 +51,6 @@ from app.workers.gpu_worker import warmup
 log = logging.getLogger(__name__)
 console = Console()
 
-_ENHANCE_ACTIONS = ("keep_and_enhance", "enhance_only")
-
 
 def _candidates() -> list[tuple[dict, list[tuple[int, int, int, int]]]]:
     """Detached snapshots safe to consume after the session closes.
@@ -61,7 +62,7 @@ def _candidates() -> list[tuple[dict, list[tuple[int, int, int, int]]]]:
         rows = sess.execute(
             select(Photo.hash, Photo.source_path, Photo.file_kind, Decision.action)
             .join(Decision, Photo.hash == Decision.photo_hash)
-            .where(Decision.action.in_(_ENHANCE_ACTIONS))
+            .where(Decision.action.in_(ENHANCE_ACTIONS))
         ).all()
         faces_by_hash: dict[str, list[tuple[int, int, int, int]]] = {}
         face_rows = sess.execute(
@@ -90,36 +91,18 @@ def _xmp_for(source_path: str) -> Path | None:
     return candidate if candidate.exists() else None
 
 
-def _persist_report(photo_hash: str, report: QualityReport) -> None:
-    """Upsert a quality_reports row for this photo. Wiped by `make reset`."""
-    with session_scope() as sess:
-        existing = sess.get(PhotoQualityReport, photo_hash)
-        if existing is None:
-            existing = PhotoQualityReport(photo_hash=photo_hash)
-            sess.add(existing)
-        existing.mean_luma = report.mean_luma
-        existing.shadow_clip = report.shadow_clip
-        existing.highlight_clip = report.highlight_clip
-        existing.midtone_ratio = report.midtone_ratio
-        existing.midtone_deviation = report.midtone_deviation
-        existing.dr_p95_p5 = report.dr_p95_p5
-        existing.local_dr_mean = report.local_dr_mean
-        existing.rg_ratio = report.rg_ratio
-        existing.bg_ratio = report.bg_ratio
-        existing.avg_saturation = report.avg_saturation
-        existing.oversat_ratio = report.oversat_ratio
-        existing.skin_hue_var = report.skin_hue_var
-        existing.lap_var = report.lap_var
-        existing.edge_density = report.edge_density
-        existing.hf_energy = report.hf_energy
-        existing.luma_noise = report.luma_noise
-        existing.chroma_noise = report.chroma_noise
-        existing.score_exposure = report.score_exposure
-        existing.score_dynamic_range = report.score_dynamic_range
-        existing.score_color = report.score_color
-        existing.score_sharpness = report.score_sharpness
-        existing.score_noise = report.score_noise
-        existing.score_q = report.score_q
+def persist_report(sess: Session, photo_hash: str, report: QualityReport) -> None:
+    """Upsert the quality_reports row for this photo from a QualityReport.
+
+    Column names mirror the dataclass fields one-to-one, so the mapping is
+    derived rather than spelled out. Wiped by `make reset`.
+    """
+    row = sess.get(PhotoQualityReport, photo_hash)
+    if row is None:
+        row = PhotoQualityReport(photo_hash=photo_hash)
+        sess.add(row)
+    for f in fields(report):
+        setattr(row, f.name, getattr(report, f.name))
 
 
 def _load_linear_float(tiff_path: Path) -> np.ndarray:
@@ -164,7 +147,8 @@ def _enhance_one(photo: dict, face_boxes: list[tuple[int, int, int, int]]) -> Pa
         report.score_sharpness,
         report.score_noise,
     )
-    _persist_report(photo["hash"], report)
+    with session_scope() as sess:
+        persist_report(sess, photo["hash"], report)
 
     plan = plan_from_report(
         report,

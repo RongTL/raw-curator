@@ -13,9 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+from app.enhancement.colorspace import luma
 
 
 def _gaussian_blur(channel: np.ndarray, radius: float) -> np.ndarray:
@@ -40,7 +38,7 @@ def unsharp_mask(
 ) -> np.ndarray:
     if amount <= 0.0:
         return rgb
-    lum = (_LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2]).astype(np.float32)
+    lum = luma(rgb)
     blurred = _gaussian_blur(lum, radius)
     detail = lum - blurred
     if threshold > 0.0:

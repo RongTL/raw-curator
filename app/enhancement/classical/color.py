@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+from app.enhancement.colorspace import luma, rgb_to_ycbcr
 
 # YCbCr skin-tone range per spec §3.2, normalized to [0,1].
 _SKIN_CB_LO = 77.0 / 255.0
@@ -21,16 +19,8 @@ _SKIN_CR_LO = 133.0 / 255.0
 _SKIN_CR_HI = 173.0 / 255.0
 
 
-def _rgb_to_ycbcr(rgb: np.ndarray) -> np.ndarray:
-    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
-    y = 0.299 * r + 0.587 * g + 0.114 * b
-    cb = -0.168736 * r - 0.331264 * g + 0.5 * b + 0.5
-    cr = 0.5 * r - 0.418688 * g - 0.081312 * b + 0.5
-    return np.stack([y, cb, cr], axis=-1)
-
-
 def _skin_mask(rgb: np.ndarray) -> np.ndarray:
-    ycbcr = _rgb_to_ycbcr(rgb)
+    ycbcr = rgb_to_ycbcr(rgb)
     cb = ycbcr[..., 1]
     cr = ycbcr[..., 2]
     in_cb = ((cb >= _SKIN_CB_LO) & (cb <= _SKIN_CB_HI)).astype(np.float32)
@@ -46,7 +36,7 @@ def adjust_saturation(
     """Scale saturation by `factor` around luma; 1.0 is identity."""
     if abs(factor - 1.0) < 1e-4:
         return rgb
-    lum = (_LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2])[..., None]
+    lum = luma(rgb)[..., None]
     scale = float(factor)
     if protect_skin:
         m = _skin_mask(rgb)[..., None]

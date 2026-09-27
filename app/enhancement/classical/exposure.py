@@ -16,15 +16,9 @@ import logging
 
 import numpy as np
 
+from app.enhancement.colorspace import luma
+
 log = logging.getLogger(__name__)
-
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
-
-
-def _luma(rgb: np.ndarray) -> np.ndarray:
-    return _LUMA_R * rgb[..., 0] + _LUMA_G * rgb[..., 1] + _LUMA_B * rgb[..., 2]
 
 
 def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
@@ -38,7 +32,7 @@ def gamma_correct(rgb: np.ndarray, gain: float) -> np.ndarray:
 def shadow_lift(rgb: np.ndarray, amount: float = 0.35) -> np.ndarray:
     if amount <= 0.0:
         return rgb
-    lum = _luma(rgb)
+    lum = luma(rgb)
     mask = np.exp(-((lum - 0.18) ** 2) / (2.0 * 0.18**2)).astype(np.float32)
     k = float(amount) * mask
     boosted = np.power(np.clip(rgb, 1e-6, 1.0), 1.0 / (1.0 + k[..., None]))

@@ -17,13 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import session_scope
+from app.decision.rules import ENHANCE_ACTIONS
 from app.ingest.extensions import ALL_SUPPORTED_EXTS, JPEG_EXTS, TIFF_EXTS
 from app.models import Cluster, Decision, Photo
 from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 
-ENHANCE_ACTIONS = ("keep_and_enhance", "enhance_only")
 
 _warned_no_schema = False
 

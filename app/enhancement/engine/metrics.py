@@ -20,12 +20,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
-log = logging.getLogger(__name__)
+from app.enhancement.colorspace import luma, rgb_to_ycbcr
 
-# Rec.709 luminance weights (spec §1.1)
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+log = logging.getLogger(__name__)
 
 # Spec thresholds for the midtone-deviation score (§1.3 general band).
 _MIDTONE_BAND_CENTER = 0.625  # mid of 0.50..0.75
@@ -59,12 +56,8 @@ def linear_to_srgb_u8(rgb_f01: np.ndarray) -> np.ndarray:
     return (out * 255.0 + 0.5).astype(np.uint8)
 
 
-def _luma_linear(rgb_f01: np.ndarray) -> np.ndarray:
-    return _LUMA_R * rgb_f01[..., 0] + _LUMA_G * rgb_f01[..., 1] + _LUMA_B * rgb_f01[..., 2]
-
-
 def _luma_u8(rgb_f01: np.ndarray) -> np.ndarray:
-    lum = _luma_linear(rgb_f01)
+    lum = luma(rgb_f01)
     # sRGB-encode the single-channel luma directly.
     a = 0.055
     f = np.clip(lum, 0.0, 1.0)
@@ -138,15 +131,6 @@ def dynamic_range_metrics(rgb_f01: np.ndarray) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
-def _rgb_to_ycbcr_linear(rgb_f01: np.ndarray) -> np.ndarray:
-    """BT.601 RGB->YCbCr on linear float; Cb/Cr centered at 0.5."""
-    r, g, b = rgb_f01[..., 0], rgb_f01[..., 1], rgb_f01[..., 2]
-    y = 0.299 * r + 0.587 * g + 0.114 * b
-    cb = -0.168736 * r - 0.331264 * g + 0.5 * b + 0.5
-    cr = 0.5 * r - 0.418688 * g - 0.081312 * b + 0.5
-    return np.stack([y, cb, cr], axis=-1)
-
-
 def color_metrics(
     rgb_f01: np.ndarray,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
@@ -175,7 +159,7 @@ def color_metrics(
             y1 = min(height, int(y + h))
             if x1 <= x0 or y1 <= y0:
                 continue
-            ycbcr = _rgb_to_ycbcr_linear(rgb_f01[y0:y1, x0:x1])
+            ycbcr = rgb_to_ycbcr(rgb_f01[y0:y1, x0:x1])
             cb_chunks.append(ycbcr[..., 1].ravel())
             cr_chunks.append(ycbcr[..., 2].ravel())
         if cb_chunks:

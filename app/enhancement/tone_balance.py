@@ -21,11 +21,9 @@ import logging
 
 import numpy as np
 
-log = logging.getLogger(__name__)
+from app.enhancement.colorspace import luma
 
-_LUMA_R = 0.2126
-_LUMA_G = 0.7152
-_LUMA_B = 0.0722
+log = logging.getLogger(__name__)
 
 _SHADOW_BIN_MAX = 0.15
 _HIGHLIGHT_BIN_MIN = 0.80
@@ -48,8 +46,7 @@ _MASK_WORK_MAX_EDGE = 768
 
 
 def _rgb_to_luma(rgb_u8: np.ndarray) -> np.ndarray:
-    f = rgb_u8.astype(np.float32) / 255.0
-    return _LUMA_R * f[..., 0] + _LUMA_G * f[..., 1] + _LUMA_B * f[..., 2]
+    return luma(rgb_u8.astype(np.float32) / 255.0)
 
 
 def is_backlit(luma01: np.ndarray) -> bool:
@@ -143,11 +140,11 @@ def recover_backlit(
     if rgb.dtype != np.uint8 or rgb.ndim != 3 or rgb.shape[2] != 3:
         raise ValueError(f"recover_backlit expects HxWx3 uint8 RGB, got {rgb.dtype} {rgb.shape}")
 
-    luma = _rgb_to_luma(rgb)
-    if not force and not is_backlit(luma):
+    lum = _rgb_to_luma(rgb)
+    if not force and not is_backlit(lum):
         return rgb
 
-    local_luma = _edge_preserving_luma(luma)
+    local_luma = _edge_preserving_luma(lum)
     if local_luma is None:
         return rgb  # cv2 missing — skip cleanly rather than degrade
     mask = _lift_mask(local_luma) * _highlight_protect(local_luma, highlight_protect)

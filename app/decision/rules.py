@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.scoring.combined import HIGH_TIER_THRESHOLD, combined_score
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -39,15 +41,16 @@ RULES: dict[str, Rule] = {
 }
 
 
+# Every decided photo goes through enhance; this is the set enhance_job and
+# the progress poller query for.
+ENHANCE_ACTIONS: tuple[str, ...] = tuple(r.action for r in RULES.values())
+
+
 def resolve(selected: str) -> Rule | None:
     return RULES.get(selected.lower())
 
 
 def tier_from_scores(technical: float | None, aesthetic: float | None) -> str:
-    """High if combined score >= 0.55, else low. Display-only since the
-    binary routing change — kept so the UI can still surface a quality hint."""
-    tech = technical or 0.0
-    aesthetic = aesthetic or 0.0
-    aesthetic_n = max(0.0, min(1.0, (aesthetic - 1.0) / 9.0))
-    combined = 0.6 * tech + 0.4 * aesthetic_n
-    return "high" if combined >= 0.55 else "low"
+    """High if the combined score clears HIGH_TIER_THRESHOLD, else low.
+    Display-only since the binary routing change."""
+    return "high" if combined_score(technical, aesthetic) >= HIGH_TIER_THRESHOLD else "low"
