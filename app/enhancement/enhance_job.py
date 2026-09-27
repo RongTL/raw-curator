@@ -30,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
+from PIL import Image
 from rich.console import Console
 from rich.progress import Progress
 from sqlalchemy import select
@@ -45,6 +46,7 @@ from app.enhancement.engine.decision import plan_from_report
 from app.enhancement.engine.metrics import as_linear_float01
 from app.enhancement.engine.plan import QualityReport
 from app.enhancement.engine.runner import run_plan
+from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import write_tiff16
 from app.models import Decision, Face, Photo, PhotoQualityReport
 from app.paths import relative_subpath
@@ -65,13 +67,20 @@ class PhotoCandidate:
     source_path: str
     file_kind: str | None
     action: str
+    preview_path: str | None = None
 
 
 def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
     snapshots: list[tuple[PhotoCandidate, list[FaceBox]]] = []
     with session_scope() as sess:
         rows = sess.execute(
-            select(Photo.hash, Photo.source_path, Photo.file_kind, Decision.action)
+            select(
+                Photo.hash,
+                Photo.source_path,
+                Photo.file_kind,
+                Decision.action,
+                Photo.preview_path,
+            )
             .join(Decision, Photo.hash == Decision.photo_hash)
             .where(Decision.action.in_(ENHANCE_ACTIONS))
         ).all()
@@ -81,11 +90,15 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
         ).all()
         for digest, x, y, w, h in face_rows:
             faces_by_hash.setdefault(digest, []).append((int(x), int(y), int(w), int(h)))
-        for digest, source_path, file_kind, action in rows:
+        for digest, source_path, file_kind, action, preview_path in rows:
             snapshots.append(
                 (
                     PhotoCandidate(
-                        hash=digest, source_path=source_path, file_kind=file_kind, action=action
+                        hash=digest,
+                        source_path=source_path,
+                        file_kind=file_kind,
+                        action=action,
+                        preview_path=preview_path,
                     ),
                     faces_by_hash.get(digest, []),
                 )
@@ -123,6 +136,13 @@ def _load_linear_float(tiff_path: Path) -> Array:
     return as_linear_float01(arr)
 
 
+def preview_size(path: Path | None) -> tuple[int, int] | None:
+    if path is None or not path.exists():
+        return None
+    with Image.open(path) as im:
+        return im.size
+
+
 def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | None:
     src = Path(photo.source_path)
     if not src.exists():
@@ -136,6 +156,11 @@ def _enhance_one(photo: PhotoCandidate, face_boxes: list[FaceBox]) -> Path | Non
     full_tiff = darktable_cli(src, xmp=_xmp_for(photo.source_path))
     rgb_f01 = _load_linear_float(full_tiff)
     native_h, native_w = rgb_f01.shape[:2]
+
+    src_size = preview_size(Path(photo.preview_path) if photo.preview_path else None)
+    if src_size is None and face_boxes:
+        log.warning("preview missing for %s; ignoring %d face box(es)", src.name, len(face_boxes))
+    face_boxes = scale_boxes(face_boxes, src_size, (native_w, native_h)) if src_size else []
 
     metrics = measure_all(rgb_f01, face_boxes=face_boxes if face_boxes else None)
     report = score_report(metrics)

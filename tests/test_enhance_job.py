@@ -96,3 +96,9 @@ def test_run_enhancement_keeps_going_after_one_photo_fails(
 
     assert seen == ["bad", "ok"]
     assert (summary.enhanced, summary.skipped, summary.failed) == (1, 0, 1)
+
+
+def test_preview_size_missing_file_means_no_faces(tmp_path: Path) -> None:
+    from app.enhancement.enhance_job import preview_size
+
+    assert preview_size(tmp_path / "nope.jpg") is None
