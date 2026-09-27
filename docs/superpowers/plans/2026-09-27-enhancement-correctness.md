@@ -2180,6 +2180,169 @@ def test_lap_var_top_exceeds_global_on_a_half_sharp_frame() -> None:
 
 ---
 
+### Task 25: Feathered tile blending for Real-ESRGAN
+
+*Added after the Step-1 owner sheet: IMG_0030's sky shows a grid with a 768-px period. `RealESRGANer`'s own tiler crops the padding and abuts tiles, so per-tile mean drift becomes visible seams in smooth gradients. Execution order: after Task 19, before Task 20.*
+
+**Files:**
+- Create: `app/enhancement/tiling.py`
+- Modify: `app/enhancement/upscale.py` (`RealEsrganModel`, `realesrgan_x2`)
+- Test: `tests/test_tiling.py`; keep `tests/test_ai_models.py` green
+
+**Interfaces:**
+- Consumes: `RealEsrganModel` from Task 11 (`__init__(tile_size, tile_pad)`, `apply(rgb, *, fidelity)`), `Array` from `app.arrays`.
+- Produces: `tiling.tiled_apply(rgb: Array, fn: Callable[[Array], Array], *, tile: int, overlap: int, scale: int) -> Array` — runs `fn` over `tile`-px windows overlapping by `overlap` px and cross-fades the overlaps with a linear feather; windows are exactly `tile` px so peak VRAM does not grow. `RealEsrganModel.__init__(tile_size: int = 768, overlap: int = 32)` replaces the `tile_pad` parameter of `RealEsrganModel`/`realesrgan_x2` (`settings.scunet_tile_pad` belongs to SCUNet and stays).
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_tiling.py
+"""Overlap-blended tiling: no hard steps at window boundaries, exact for a consistent model."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from app.arrays import Array
+from app.enhancement.tiling import tiled_apply
+
+
+def _up2(t: Array) -> Array:
+    return np.repeat(np.repeat(t, 2, axis=0), 2, axis=1)
+
+
+def test_feather_removes_per_tile_offset_steps() -> None:
+    calls = {"n": 0}
+
+    def fn(t: Array) -> Array:  # alternate windows come back 40 levels brighter
+        calls["n"] += 1
+        return np.clip(_up2(t).astype(np.int32) + (40 if calls["n"] % 2 else 0), 0, 255).astype(np.uint8)
+
+    flat = np.full((200, 200, 3), 100, dtype=np.uint8)
+    out = tiled_apply(flat, fn, tile=64, overlap=16, scale=2)
+    assert out.shape == (400, 400, 3)
+    assert calls["n"] == 16  # starts 0, 48, 96, 136 on each axis
+    assert np.abs(np.diff(out.astype(np.int16), axis=0)).max() <= 2
+    assert np.abs(np.diff(out.astype(np.int16), axis=1)).max() <= 2
+
+
+def test_consistent_model_round_trips_within_rounding() -> None:
+    img = np.random.default_rng(0).integers(0, 256, size=(130, 97, 3), dtype=np.uint8)
+    out = tiled_apply(img, _up2, tile=64, overlap=16, scale=2)
+    assert out.shape == (260, 194, 3)
+    assert np.abs(out.astype(np.int16) - _up2(img).astype(np.int16)).max() <= 1
+
+
+def test_image_smaller_than_tile_is_one_call() -> None:
+    calls = {"n": 0}
+
+    def fn(t: Array) -> Array:
+        calls["n"] += 1
+        return _up2(t)
+
+    out = tiled_apply(np.full((40, 50, 3), 7, dtype=np.uint8), fn, tile=64, overlap=16, scale=2)
+    assert calls["n"] == 1
+    assert out.shape == (80, 100, 3)
+    assert int(out.min()) == 7 == int(out.max())
+```
+
+- [ ] **Step 2: Run to verify failure** — `/tmp/rc.sh test tests/test_tiling.py -v` → `ModuleNotFoundError: app.enhancement.tiling`.
+- [ ] **Step 3: Implement**
+
+```python
+# app/enhancement/tiling.py
+"""Overlap-blended tiling for full-frame neural models.
+
+Real-ESRGAN's own tiler crops the padding away and abuts tiles; per-tile mean
+drift then shows as a grid in skies and other smooth gradients. This runs the
+model on overlapping windows and cross-fades them with a linear feather so no
+hard tile boundary survives. Windows are exactly ``tile`` px, so peak memory
+equals the un-feathered tiler's.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+import numpy as np
+
+from app.arrays import Array
+
+
+def _starts(length: int, tile: int, stride: int) -> list[int]:
+    if length <= tile:
+        return [0]
+    starts = list(range(0, length - tile, stride))
+    starts.append(length - tile)
+    return starts
+
+
+def _ramp(n: int, overlap: int, *, first: bool, last: bool) -> Array:
+    """Per-pixel weight along one axis: 1 inside, a linear fade over ``overlap`` px on each
+    side that has a neighbour. Two neighbours' fades sum to exactly 1 across the overlap."""
+    w = np.ones(n, dtype=np.float32)
+    k = min(overlap, n)
+    if k > 0:
+        r = np.arange(1, k + 1, dtype=np.float32) / (k + 1)
+        if not first:
+            w[:k] = r
+        if not last:
+            w[n - k :] = np.minimum(w[n - k :], r[::-1])
+    return w
+
+
+def tiled_apply(
+    rgb: Array,
+    fn: Callable[[Array], Array],
+    *,
+    tile: int,
+    overlap: int,
+    scale: int,
+) -> Array:
+    """Apply ``fn`` (HxWx3 uint8 -> (H*scale)x(W*scale)x3 uint8) over ``tile``-px windows
+    overlapping by ``overlap`` px; overlaps are cross-faded with a linear feather."""
+    h, w = rgb.shape[:2]
+    stride = max(1, tile - overlap)
+    acc = np.zeros((h * scale, w * scale, 3), dtype=np.float32)
+    wsum = np.zeros((h * scale, w * scale, 1), dtype=np.float32)
+    for y0 in _starts(h, tile, stride):
+        for x0 in _starts(w, tile, stride):
+            y1, x1 = min(y0 + tile, h), min(x0 + tile, w)
+            out = fn(rgb[y0:y1, x0:x1]).astype(np.float32)
+            oh, ow = out.shape[:2]
+            wy = _ramp(oh, overlap * scale, first=y0 == 0, last=y1 == h)
+            wx = _ramp(ow, overlap * scale, first=x0 == 0, last=x1 == w)
+            wgt = (wy[:, None] * wx[None, :])[..., None]
+            ys, xs = slice(y0 * scale, y0 * scale + oh), slice(x0 * scale, x0 * scale + ow)
+            acc[ys, xs] += out * wgt
+            wsum[ys, xs] += wgt
+    return np.clip(np.rint(acc / np.maximum(wsum, 1e-6)), 0, 255).astype(np.uint8)
+```
+
+In `app/enhancement/upscale.py`:
+- `__init__(self, tile_size: int = 768, overlap: int = 32)`; store `self._overlap`; drop `tile_pad`.
+- `RealESRGANer(scale=2, model_path=..., model=model, tile=0, tile_pad=0, pre_pad=0, half=True)` — tiling is ours now.
+- In `apply`, replace `ai_out, _ = self._upsampler.enhance(rgb, outscale=2)` with
+
+```python
+        ai_out = tiled_apply(
+            rgb,
+            lambda t: self._upsampler.enhance(t, outscale=2)[0],
+            tile=self._tile_size,
+            overlap=self._overlap,
+            scale=2,
+        )
+```
+
+- `realesrgan_x2(rgb, tile_size=768, overlap=32, fidelity=1.0)` forwards `overlap`. Update the module docstring's first paragraph to mention feathered tiling. Grep `tile_pad` in `app/enhancement/upscale.py`, `app/enhancement/batch.py` and `tests/` and remove the Real-ESRGAN uses only — `scunet_tile_pad` is SCUNet's and stays.
+
+- [ ] **Step 4: Run** — `/tmp/rc.sh test tests/test_tiling.py tests/test_ai_models.py -v` → PASS; full suite, ruff, mypy green.
+- [ ] **Step 5: Commit** — `git commit -m "fix(enhance): feather Real-ESRGAN tiles to remove seams in smooth gradients"`
+
+The Step 3 owner sheet (all 25 frames) is the visual check: IMG_0030 and IMG_1177 skies must show no grid.
+
+---
+
 ## Project B roadmap (milestones; task-level plan follows its own spec after Step 3)
 
 These are not executable tasks yet. They exist so the traceability matrix below is complete and so the owner can see the shape of the remaining work.
@@ -2206,6 +2369,7 @@ These are not executable tasks yet. They exist so the traceability matrix below 
 | Photographer | Mean-luma exposure flattens night/low-key/high-key | M4, M5 |
 | Photographer | Saturation rules hurt foliage/food and fog/mono | Task 23 (mono skip), M5 |
 | Photographer | Real-ESRGAN on everything | Task 19 |
+| Retoucher | Real-ESRGAN tile seams in smooth gradients (found at the Step-1 gate) | Task 25 |
 | Retoucher | CodeFormer rebuilds healthy faces | Tasks 20, 21 |
 | Retoucher | CLAHE on skin and skies | Task 23 (cap/skip), M6 |
 | Retoucher | Global sharpness vs bokeh; motion blur | Task 23 (top-quartile), M6 |
