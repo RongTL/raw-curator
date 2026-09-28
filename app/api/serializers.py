@@ -12,7 +12,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
-from app.api.routes._urls import cache_url, jpeg_url
+from app.api.routes._urls import cache_url, render_url
 from app.enhancement.engine.plan import QualityReport
 from app.models import Decision, Face, Photo, PhotoQualityReport
 
@@ -23,11 +23,11 @@ def decision_payload(d: Decision | None) -> dict[str, Any] | None:
     if d is None:
         return None
     return {
-        "selected": d.selected,
+        "export_choice": d.export_choice,
+        "keep_raw": bool(d.keep_raw),
         "stars": d.stars,
         "favorite": bool(d.favorite),
         "applied": bool(d.applied),
-        "action": d.action,
         "note": d.note,
     }
 
@@ -45,8 +45,9 @@ def photo_summary(
 
     ``q_after``/``degraded`` (from the quality report, when the caller looked it up)
     expose the post-enhance result so the grid can badge/filter enhanced frames;
-    ``n_faces`` drives the has-faces filter. ``enhanced_url`` is derived and may 404
-    until export-jpeg has run.
+    ``n_faces`` drives the has-faces filter. ``before_url``/``after_url`` are derived
+    review renders and may 404 until enhance has run (the UI falls back to
+    ``preview_url``).
     """
     return {
         "hash": p.hash,
@@ -54,7 +55,8 @@ def photo_summary(
         "file_kind": p.file_kind,
         "thumb_url": cache_url(p.thumb_path),
         "preview_url": cache_url(p.preview_path),
-        "enhanced_url": jpeg_url(p.source_path),
+        "before_url": render_url(p.hash, "before"),
+        "after_url": render_url(p.hash, "after"),
         "captured_at": p.captured_at.isoformat() if p.captured_at else None,
         "camera_body": p.camera_body,
         "blur_var": p.blur_var,

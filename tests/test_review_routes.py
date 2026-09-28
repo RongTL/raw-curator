@@ -94,11 +94,11 @@ def test_queue_sorted_by_technical_score_with_decisions(client: TestClient) -> N
     items = client.get("/api/queue/").json()
     assert [i["hash"] for i in items] == ["aaa", "bbb", "ccc"]
     assert items[0]["decision"] == {
-        "selected": "yes",
+        "export_choice": "enhanced",
+        "keep_raw": True,
         "stars": 4,
         "favorite": True,
         "applied": False,
-        "action": "none",
         "note": None,
     }
     assert items[1]["decision"] is None
