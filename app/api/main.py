@@ -56,8 +56,8 @@ app.include_router(system.router, prefix="/api/system", tags=["system"])
 # the dir exists in-container but not necessarily at import time elsewhere.
 app.mount("/cache", StaticFiles(directory=str(settings.cache), check_dir=False), name="cache")
 
-# Share JPEGs from export-jpeg, so the review UI can show the enhanced result.
-# check_dir=False: the dir appears only after the first export-jpeg run.
+# Share JPEGs from export, so the review UI can show the enhanced result.
+# check_dir=False: the dir appears only after the first export run.
 app.mount(
     "/jpeg",
     StaticFiles(directory=str(settings.photos / "jpeg"), check_dir=False),

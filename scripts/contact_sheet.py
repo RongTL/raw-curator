@@ -1,4 +1,14 @@
-"""Before/after contact sheets for owner review: darktable default vs enhanced master."""
+"""Before/after contact sheets for owner review: darktable default vs enhanced master.
+
+STALE — pending rework. This tool reads the enhanced master from
+``photos/exported/*.tif``, which the before/after export-choice workflow no
+longer writes: enhance now emits per-hash render JPEGs under
+``cache/enhanced/<hash>.{before,after}.full.jpg`` instead. Repointing is not a
+clean swap (this script keys off the TIFF/original-file *stem*, whereas the new
+renders are keyed by *photo hash*, so it needs a DB stem->hash lookup). It is a
+manual owner-only look-review tool, not run in CI. Until reworked it produces no
+sheets (the ``exported/`` glob is empty).
+"""
 
 from __future__ import annotations
 

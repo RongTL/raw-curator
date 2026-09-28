@@ -102,7 +102,7 @@ All knobs are env vars with prefix `RAWCURATOR_`, loaded via pydantic-settings i
 
 Every setting must have a reader: do not add a field to `Settings` (or a row to `.env.example`/README) without code that uses it, and do not read `os.environ` directly — `denoise.py`/`face_restore.py` used to hide knobs that way. Model weight locations are resolved through `app/enhancement/weights.py` (built on `settings.models`); `scripts/download_models.py` shares the same constants. `RAWCURATOR_LOG_LEVEL` sets the root logger level installed by `app/logging_setup.py` from the Typer callback in `app/cli.py`.
 
-Two knobs added for the before/after review + export: `RAWCURATOR_REVIEW_LONG_EDGE` (default `3000`) sizes the review-res `before`/`after` JPEGs `enhance` renders (read in `render_jpeg.py`); `RAWCURATOR_KEEP_RAW_DEFAULT` (default `true`) is the initial `keep_raw` value stamped on a freshly-created `Decision` row (read in `decide.py`/`bulk.py`). The final share JPEG still obeys `RAWCURATOR_JPEG_QUALITY` / `_LONG_EDGE` / `_PROGRESSIVE`.
+Two knobs added for the before/after review + export: `RAWCURATOR_REVIEW_LONG_EDGE` (default `3000`) sizes the review-res `before`/`after` JPEGs `enhance` renders (read in `app/enhancement/batch.py` and passed to `render_jpeg.write_render`); `RAWCURATOR_KEEP_RAW_DEFAULT` (default `true`) is the initial `keep_raw` value stamped on a freshly-created `Decision` row (read in `decide.py`/`bulk.py`). The final share JPEG still obeys `RAWCURATOR_JPEG_QUALITY` / `_LONG_EDGE` / `_PROGRESSIVE`.
 
 VRAM-sensitive defaults are tuned for a 6 GB RTX 2060:
 - `RAWCURATOR_ENHANCE_AI_SCALE=1.0` — no pre-AI downscale; AI sees native pixels. Drop to `0.85`/`0.7`/`0.5` if OOM.

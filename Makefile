@@ -18,7 +18,7 @@ help:
 	@echo "  filter          Cheap CPU filters"
 	@echo "  score           GPU scoring (clip/iqa/faces)"
 	@echo "  cluster         Burst + phash + CLIP HDBSCAN"
-	@echo "  enhance         RAW -> AI chain -> 16-bit TIFF for every decided photo"
+	@echo "  enhance         RAW -> AI chain -> before/after render JPEGs for every RAW"
 	@echo "  export          Apply export choices -> share JPEGs (+ RAW retention)"
 	@echo "  run             Ingest -> filter -> score -> cluster (autopilot)"
 	@echo "  serve           Control Center UI on http://localhost:8080 (runs all stages)"

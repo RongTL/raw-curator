@@ -1,6 +1,6 @@
 """Map an absolute source path to its path relative to a known photos root.
 
-Used by submit / enhance / export to mirror the subfolder layout found under
+Used by enhance / export to mirror the subfolder layout found under
 photos/incoming/ into the library/, exported/, and jpeg/ output trees.
 """
 
