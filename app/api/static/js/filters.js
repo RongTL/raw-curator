@@ -28,30 +28,32 @@ export function matchesFilter(p, f) {
   return true;
 }
 
-export function FilterBar({ filter, setFilter }) {
-  const seg = (id, label) => html`
+export function FilterBar({ filter, setFilter, counts }) {
+  // counts is optional; a chip shows " (n)" only when its tally is known.
+  const n = (key) => (counts && counts[key] != null ? ` (${counts[key]})` : "");
+  const seg = (id, label, countKey) => html`
     <button onClick=${() => setFilter({ ...filter, decision: id })}
       class="px-2.5 py-1 rounded text-xs ${filter.decision === id
         ? "bg-zinc-600 text-zinc-100" : "bg-zinc-900 text-zinc-400"}">
-      ${label}
+      ${label}${n(countKey)}
     </button>`;
-  const toggle = (key, label) => html`
+  const toggle = (key, label, countKey) => html`
     <button onClick=${() => setFilter({ ...filter, [key]: !filter[key] })}
       class="px-2.5 py-1 rounded text-xs ${filter[key]
         ? "bg-sky-800 text-sky-100" : "bg-zinc-900 text-zinc-400"}">
-      ${label}
+      ${label}${n(countKey)}
     </button>`;
   return html`
     <div class="flex items-center gap-2 flex-wrap px-4 py-1.5 border-b border-zinc-800 bg-zinc-950/90">
       <span class="text-[11px] uppercase tracking-wider text-zinc-600 mr-1">filter</span>
       <div class="flex gap-1 p-0.5 bg-zinc-900 border border-zinc-800 rounded">
-        ${seg("all", "All")} ${seg("undecided", "Undecided")}
-        ${seg("yes", "Yes")} ${seg("no", "No")}
+        ${seg("all", "All", "all")} ${seg("undecided", "Undecided", "undecided")}
+        ${seg("yes", "Yes", "yes")} ${seg("no", "No", "no")}
       </div>
-      ${toggle("fav", "★ Fav")}
-      ${toggle("faces", "Faces")}
-      ${toggle("enhanced", "Enhanced")}
-      ${toggle("flagged", "Exposure flag")}
+      ${toggle("fav", "★ Fav", "fav")}
+      ${toggle("faces", "Faces", "faces")}
+      ${toggle("enhanced", "Enhanced", "enhanced")}
+      ${toggle("flagged", "Exposure flag", "flagged")}
       ${isFilterActive(filter) && html`
         <button onClick=${() => setFilter({ ...EMPTY_FILTER })}
           class="ml-auto text-xs text-zinc-500 hover:text-zinc-300">clear</button>`}

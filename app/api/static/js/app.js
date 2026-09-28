@@ -1,7 +1,7 @@
 // Control-center root: header, timeline, context panel, resource bar.
 import { api } from "./api.js";
 import {
-  createRoot, html, useCallback, useRef, useState,
+  createRoot, html, useCallback, useEffect, useRef, useState,
   usePoll,
 } from "./ui.js";
 import { TimelineBar } from "./timeline.js";
@@ -61,11 +61,22 @@ function App() {
   const [status, setStatus] = useState(null);
   const [stats, setStats] = useState(null);
   const [log, setLog] = useState(null);
-  const [panel, setPanel] = useState("pipeline"); // "pipeline" | "review"
+  const [panel, setPanel] = useState(() => {
+    const m = /panel=(pipeline|review)/.exec(location.hash);
+    return m ? m[1] : "pipeline"; // "pipeline" | "review"
+  });
   const [selectedStage, setSelectedStage] = useState(null); // stage tile the user is viewing
   const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState(null);
   const logRef = useRef({ seq: 0, next: 0, lines: [] });
+
+  // Remember pipeline vs review in the URL so a reload doesn't always land on
+  // the Ingest log; ReviewPanel persists its own sub-view under the same hash.
+  useEffect(() => {
+    const params = new URLSearchParams(location.hash.slice(1));
+    params.set("panel", panel);
+    history.replaceState(null, "", `#${params.toString()}`);
+  }, [panel]);
 
   const busy = Boolean(status?.running) || status?.autorun_leg != null;
 
@@ -156,7 +167,7 @@ function App() {
         </div>
         <div class="flex items-center gap-2 text-sm">
           <button class="px-3 py-1.5 rounded bg-sky-800 hover:bg-sky-700 disabled:opacity-40"
-                  disabled=${busy} onClick=${() => act(() => api.autoRun(1))}>${autoLabel}</button>
+                  disabled=${busy} onClick=${() => { setSelectedStage(null); act(() => api.autoRun(1)); }}>${autoLabel}</button>
           <button class="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40"
                   disabled=${!busy} onClick=${() => act(() => api.cancelJob())}>⏹ Stop</button>
           <button class="px-3 py-1.5 rounded bg-zinc-900 text-rose-300 hover:bg-zinc-800 disabled:opacity-40"
@@ -170,7 +181,7 @@ function App() {
       <main class="flex-1 min-h-0 overflow-auto">
         ${panel === "review"
           ? html`<${ReviewPanel} pipelineBusy=${busy}
-                   onSubmitAndContinue=${() => { setPanel("pipeline"); act(() => api.autoRun(2)); }} />`
+                   onSubmitAndContinue=${() => { setSelectedStage(null); setPanel("pipeline"); act(() => api.autoRun(2)); }} />`
           : html`<${StagePanel} status=${status} log=${log} selectedStage=${selectedStage}
                    onRunStage=${onRunStage} busy=${busy} />`}
       </main>

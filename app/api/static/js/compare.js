@@ -10,12 +10,13 @@ function CompareCard({ p, onDecide, onKeepOnly, busy }) {
       ${label}
     </button>`;
   return html`
-    <div class="flex flex-col bg-zinc-900 rounded overflow-hidden w-72 shrink-0">
+    <div class="flex flex-col bg-zinc-900 rounded overflow-hidden w-96 max-w-[42vw] shrink-0">
       <div class="relative bg-black">
-        <img src=${p.preview_url ?? p.thumb_url} alt=${p.hash}
-             class="block w-full aspect-[3/2] object-contain" />
+        <img src=${p.preview_url ?? p.thumb_url} alt=${p.filename ?? p.hash}
+             class="block w-full max-h-[60vh] object-contain" />
         ${p.is_recommended && html`
-          <span class="absolute top-1 left-1 bg-amber-500/90 text-black text-[10px] px-1 rounded font-semibold">REC</span>`}
+          <span title="recommended keeper for this cluster"
+            class="absolute top-1 left-1 bg-amber-500/90 text-black text-[10px] px-1 rounded font-semibold">REC</span>`}
       </div>
       <div class="p-2 space-y-1 text-xs">
         <div class="font-mono truncate" title=${p.filename}>${p.filename ?? p.hash.slice(0, 8)}</div>
@@ -26,9 +27,13 @@ function CompareCard({ p, onDecide, onKeepOnly, busy }) {
           ${btn("yes", "yes", "bg-emerald-700 text-white")}
           ${btn("no", "no", "bg-rose-800 text-white")}
         </div>
+        <!-- Deliberately muted (not a big orange button): keep-only rejects every
+             other frame in the cluster, so it shouldn't be easy to hit by accident. -->
         <button disabled=${busy} onClick=${() => onKeepOnly(p.hash)}
-          class="w-full px-2 py-1 rounded text-xs bg-amber-700 hover:bg-amber-600 text-black disabled:opacity-40">
-          keep only this
+          title="keep this frame, reject the rest of the cluster"
+          class="w-full px-2 py-1 rounded text-xs bg-zinc-800 text-amber-300 hover:bg-zinc-700
+                 border border-zinc-700 disabled:opacity-40">
+          keep only this ↓ reject the rest
         </button>
       </div>
     </div>`;
