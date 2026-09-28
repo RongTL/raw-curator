@@ -19,6 +19,7 @@ def test_stage_all_marks_undecided_photos_no(tmp_db: Session) -> None:
     tmp_db.flush()
 
     staged = stage_all(tmp_db, "no")
+    tmp_db.flush()  # autoflush=False: flush so the get()s below see the new rows
 
     assert staged == 3
     for h in ("a", "b", "c"):
@@ -66,6 +67,7 @@ def test_stage_all_mixed_batch_counts_only_non_applied(tmp_db: Session) -> None:
     tmp_db.flush()
 
     staged = stage_all(tmp_db, "no")
+    tmp_db.flush()  # autoflush=False: flush so the get()s below see the new row
 
     assert staged == 2  # missing (created) + pending (updated); applied skipped
     assert tmp_db.get(Decision, "missing").selected == "no"

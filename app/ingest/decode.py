@@ -17,6 +17,7 @@ import tifffile
 from PIL import Image, ImageOps
 
 from app.arrays import Array
+from app.enhancement.colorspace import linear_rec2020_to_srgb_u8
 
 # Extension sets live in the constants-only `app.ingest.extensions` module so
 # lightweight callers (progress polling, export) can use them without this
@@ -146,17 +147,54 @@ def extract_embedded_thumb(path: Path) -> bytes | None:
     return bytes(thumb.data)
 
 
+LINEAR_REC2020_DESC = "Linear Rec2020 RGB"
+_TIFF_ICC_TAG = 34675
+
+
+def icc_description(icc: bytes) -> str | None:
+    """The ICC 'desc' tag as text (v2 'desc' or v4 'mluc' record); None if absent/malformed."""
+    if len(icc) < 132:
+        return None
+    count = int.from_bytes(icc[128:132], "big")
+    count = min(count, max(0, (len(icc) - 132) // 12))  # a malformed count can't exceed the blob
+    for i in range(count):
+        off = 132 + 12 * i
+        if icc[off : off + 4] != b"desc":
+            continue
+        start = int.from_bytes(icc[off + 4 : off + 8], "big")
+        data = icc[start : start + int.from_bytes(icc[off + 8 : off + 12], "big")]
+        if data[:4] == b"desc":
+            n = int.from_bytes(data[8:12], "big")
+            return data[12 : 12 + n].rstrip(b"\x00").decode("ascii", "replace")
+        if data[:4] == b"mluc" and int.from_bytes(data[8:12], "big") > 0:
+            n = int.from_bytes(data[20:24], "big")
+            o = int.from_bytes(data[24:28], "big")
+            return data[o : o + n].decode("utf-16-be", "replace").rstrip("\x00")
+    return None
+
+
+def _tiff_icc(path: Path) -> bytes | None:
+    with tifffile.TiffFile(str(path)) as tf:
+        tag = tf.pages[0].tags.get(_TIFF_ICC_TAG)  # type: ignore[union-attr]
+        return bytes(tag.value) if tag is not None else None
+
+
 def load_tiff_rgb8(path: Path) -> Array:
-    """Any TIFF -> HxWx3 uint8: grayscale is broadcast, alpha dropped, 16-bit >> 8."""
+    """Any TIFF -> HxWx3 uint8 display sRGB. Our linear Rec.2020 masters are colour-converted;
+    everything else is assumed sRGB-encoded (grayscale broadcast, alpha dropped, 16-bit >> 8)."""
     arr = tifffile.imread(str(path))
     if arr.ndim == 2:
         arr = np.stack([arr] * 3, axis=-1)
     if arr.shape[-1] == 4:
         arr = arr[..., :3]
+    icc = _tiff_icc(path)
+    if icc is not None and icc_description(icc) == LINEAR_REC2020_DESC:
+        scale = 65535.0 if arr.dtype == np.uint16 else 255.0 if arr.dtype == np.uint8 else 1.0
+        return linear_rec2020_to_srgb_u8(arr.astype(np.float32) / scale)
     if arr.dtype == np.uint16:
-        arr = (arr >> 8).astype(np.uint8)
-    elif arr.dtype != np.uint8:
-        arr = np.clip(arr, 0, 255).astype(np.uint8)
+        return (arr >> 8).astype(np.uint8)
+    if arr.dtype != np.uint8:
+        return np.clip(arr, 0, 255).astype(np.uint8)
     return arr
 
 

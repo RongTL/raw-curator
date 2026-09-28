@@ -1,19 +1,15 @@
-"""Final-stage Lanczos resize back to the user's target resolution.
+"""Parse `settings.enhance_target_res` into an explicit target (w, h).
 
 `settings.enhance_target_res` accepts:
-    "native"        -> resize to the source RAW's native (w, h)
+    "native"        -> the source RAW's native (w, h)
     "200%"          -> 2x native (any "<int>%" works)
     "WIDTHxHEIGHT"  -> explicit pixel size, e.g. "3840x2160"
 """
 
 from __future__ import annotations
 
-from app.arrays import Array
-from app.config import settings
-from app.enhancement.downsample import lanczos_resize
 
-
-def _parse_target(spec: str, native: tuple[int, int]) -> tuple[int, int]:
+def parse_target(spec: str, native: tuple[int, int]) -> tuple[int, int]:
     native_w, native_h = native
     s = spec.strip().lower()
     if s == "native":
@@ -25,11 +21,3 @@ def _parse_target(spec: str, native: tuple[int, int]) -> tuple[int, int]:
         w_str, h_str = s.split("x", 1)
         return max(1, int(w_str)), max(1, int(h_str))
     raise ValueError(f"unrecognised enhance_target_res: {spec!r}")
-
-
-def upsample_final(arr: Array, native_size: tuple[int, int]) -> Array:
-    target = _parse_target(settings.enhance_target_res, native_size)
-    h, w = arr.shape[:2]
-    if (w, h) == target:
-        return arr
-    return lanczos_resize(arr, target)

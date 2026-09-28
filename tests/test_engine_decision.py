@@ -7,7 +7,7 @@ asserts the planner adds (or omits) the corresponding step.
 from __future__ import annotations
 
 from app.enhancement.engine.decision import plan_from_report
-from app.enhancement.engine.plan import QualityReport
+from app.enhancement.engine.plan import FaceInfo, QualityReport
 
 
 def _baseline(**overrides) -> QualityReport:
@@ -45,12 +45,26 @@ def _step_names(plan) -> list[str]:
 
 
 def test_balanced_input_plan_is_minimal() -> None:
-    plan = plan_from_report(_baseline(), has_faces=False)
+    plan = plan_from_report(_baseline(), native_long_edge=6000)
     names = _step_names(plan)
-    assert "realesrgan_upscale" in names
-    assert names[-1] == "tone_map_final"
+    assert "realesrgan_upscale" not in names
+    assert "tone_map_final" not in names
     assert "exposure_gamma" not in names
     assert "shadow_lift" not in names
+
+
+def test_sr_skipped_for_large_source_at_native_target() -> None:
+    plan = plan_from_report(_baseline(), native_long_edge=6000, target_scale=1.0)
+    assert "realesrgan_upscale" not in _step_names(plan)
+
+
+def test_sr_planned_when_enlarging_or_small_source() -> None:
+    assert "realesrgan_upscale" in _step_names(
+        plan_from_report(_baseline(), native_long_edge=6000, target_scale=2.0)
+    )
+    assert "realesrgan_upscale" in _step_names(
+        plan_from_report(_baseline(), native_long_edge=2400, target_scale=1.0)
+    )
 
 
 def test_underexposed_triggers_gamma_lift() -> None:
@@ -76,8 +90,24 @@ def test_high_dr_triggers_rolloff_not_clahe() -> None:
 
 
 def test_color_cast_triggers_white_balance() -> None:
-    plan = plan_from_report(_baseline(rg_ratio=1.20, bg_ratio=0.85))
+    plan = plan_from_report(_baseline(neutral_fraction=0.3, rg_neutral=1.20, bg_neutral=0.85))
     assert "white_balance" in _step_names(plan)
+
+
+def test_blue_hour_scene_without_neutrals_gets_no_white_balance() -> None:
+    plan = plan_from_report(
+        _baseline(
+            rg_ratio=0.8, bg_ratio=1.3, neutral_fraction=0.005, rg_neutral=None, bg_neutral=None
+        )
+    )
+    assert "white_balance" not in _step_names(plan)
+
+
+def test_tungsten_cast_on_neutral_surfaces_is_half_corrected_at_most() -> None:
+    plan = plan_from_report(_baseline(neutral_fraction=0.3, rg_neutral=1.4, bg_neutral=0.7))
+    wb = next(s for s in plan.steps if s.name == "white_balance")
+    assert wb.params["strength"] <= 0.5
+    assert wb.params["neutral_only"] is True
 
 
 def test_oversaturated_triggers_desaturate() -> None:
@@ -88,6 +118,28 @@ def test_oversaturated_triggers_desaturate() -> None:
 def test_undersaturated_triggers_boost() -> None:
     plan = plan_from_report(_baseline(avg_saturation=0.15))
     assert "saturation_adjust" in _step_names(plan)
+
+
+def test_monochrome_image_gets_no_saturation_boost() -> None:
+    plan = plan_from_report(_baseline(avg_saturation=0.05, mean_chroma=0.002))
+    assert "saturation_adjust" not in _step_names(plan)
+
+
+def test_clahe_is_capped_and_skipped_for_portraits() -> None:
+    flat = _baseline(dr_p95_p5=100.0, local_dr_mean=40.0)
+    clip = next(s for s in plan_from_report(flat).steps if s.name == "clahe_local_contrast").params[
+        "clip_limit"
+    ]
+    assert clip <= 2.0
+    assert "clahe_local_contrast" not in _step_names(
+        plan_from_report(flat, faces=[FaceInfo((0, 0, 900, 900), 400.0)])
+    )
+
+
+def test_bokeh_portrait_is_not_sharpened_globally() -> None:
+    # whole-frame variance low (creamy background) but the sharpest blocks are crisp
+    plan = plan_from_report(_baseline(lap_var=60.0, lap_var_top=420.0))
+    assert "unsharp_mask" not in _step_names(plan)
 
 
 def test_noisy_input_triggers_scunet() -> None:
@@ -106,13 +158,25 @@ def test_blurry_input_triggers_unsharp() -> None:
 
 
 def test_faces_trigger_codeformer() -> None:
-    plan = plan_from_report(_baseline(), has_faces=True)
+    plan = plan_from_report(_baseline(), faces=[FaceInfo((0, 0, 120, 120), 40.0)])
     assert "codeformer_restore" in _step_names(plan)
 
 
 def test_no_faces_no_codeformer() -> None:
-    plan = plan_from_report(_baseline(), has_faces=False)
+    plan = plan_from_report(_baseline())
     assert "codeformer_restore" not in _step_names(plan)
+
+
+def test_sharp_large_faces_are_left_alone() -> None:
+    faces = [FaceInfo((100, 100, 800, 800), lap_var=400.0)]
+    assert "codeformer_restore" not in _step_names(plan_from_report(_baseline(), faces=faces))
+
+
+def test_small_or_soft_faces_get_restored() -> None:
+    small = [FaceInfo((0, 0, 120, 120), lap_var=400.0)]
+    soft = [FaceInfo((0, 0, 900, 900), lap_var=40.0)]
+    assert "codeformer_restore" in _step_names(plan_from_report(_baseline(), faces=small))
+    assert "codeformer_restore" in _step_names(plan_from_report(_baseline(), faces=soft))
 
 
 def test_plan_order_matches_spec_section_7() -> None:
@@ -127,7 +191,7 @@ def test_plan_order_matches_spec_section_7() -> None:
         "saturation_adjust",
     }
     ai = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
-    post = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}
+    post = {"unsharp_mask", "clahe_local_contrast"}
 
     plan = plan_from_report(
         _baseline(
@@ -137,8 +201,11 @@ def test_plan_order_matches_spec_section_7() -> None:
             avg_saturation=0.60,
             luma_noise=5.0,
             lap_var=40.0,
+            neutral_fraction=0.3,
+            rg_neutral=1.4,
+            bg_neutral=0.7,
         ),
-        has_faces=True,
+        faces=[FaceInfo((0, 0, 120, 120), 40.0)],
     )
     names = _step_names(plan)
 
@@ -163,7 +230,9 @@ def test_denoise_switch_off_skips_scunet_even_when_noisy() -> None:
 
 
 def test_face_restore_switch_off_skips_codeformer_even_with_faces() -> None:
-    plan = plan_from_report(_baseline(), has_faces=True, face_restore=False)
+    plan = plan_from_report(
+        _baseline(), faces=[FaceInfo((0, 0, 120, 120), 40.0)], face_restore=False
+    )
     assert "codeformer_restore" not in _step_names(plan)
 
 
@@ -172,3 +241,30 @@ def test_backlit_switch_off_skips_backlit_recover_even_when_bimodal() -> None:
         _baseline(shadow_clip=0.25, highlight_clip=0.15), backlit_recovery=False
     )
     assert "backlit_recover" not in _step_names(plan)
+
+
+def test_tone_map_is_never_planned() -> None:
+    for report in (_baseline(), _baseline(mean_luma=60.0), _baseline(highlight_clip=0.2)):
+        assert "tone_map_final" not in _step_names(plan_from_report(report))
+
+
+def test_low_iso_mild_noise_does_not_trigger_scunet() -> None:
+    plan = plan_from_report(_baseline(luma_noise=3.0), iso=100)
+    assert "scunet_denoise" not in _step_names(plan)
+
+
+def test_high_iso_mild_noise_triggers_scunet() -> None:
+    plan = plan_from_report(_baseline(luma_noise=3.0), iso=3200)
+    assert "scunet_denoise" in _step_names(plan)
+
+
+def test_strong_noise_triggers_regardless_of_iso() -> None:
+    assert "scunet_denoise" in _step_names(plan_from_report(_baseline(luma_noise=5.0), iso=100))
+    assert "scunet_denoise" in _step_names(plan_from_report(_baseline(luma_noise=5.0), iso=None))
+
+
+def test_codeformer_reason_flags_noise_when_that_is_the_trigger() -> None:
+    faces = [FaceInfo((0, 0, 900, 900), lap_var=400.0)]  # large & sharp: only noise degrades it
+    plan = plan_from_report(_baseline(luma_noise=6.0), faces=faces)
+    cf = next(s for s in plan.steps if s.name == "codeformer_restore")
+    assert cf.reason == "1 of 1 faces small/soft/noisy"

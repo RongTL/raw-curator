@@ -1,24 +1,27 @@
-"""Execute an EnhancementPlan.
+"""Execute an EnhancementPlan against a float32 linear Rec.2020 image.
 
-Step dispatch lives here. The runner manages three impedance mismatches:
+The batch pipeline (``app/enhancement/batch.py``) drives the steps directly:
+``apply_pre_ai`` runs the classical corrections before the AI stage,
+``apply_ai_delta`` merges each AI model's *change* into the full-precision
+float master at an AI boundary, and ``apply_post_ai`` runs the classical
+polish afterwards. ``run_plan`` wires those together for the verifier's
+safe-plan retry and any legacy single-image caller.
 
-1. **Bit depth**: classical steps operate on float32 RGB in [0, 1];
-   AI steps (SCUNet, Real-ESRGAN, CodeFormer) take uint8 RGB.
-   Conversions happen at AI boundaries only — the float state survives
-   across consecutive classical steps without quantisation.
+Two impedance mismatches are handled at the AI boundary only:
 
-2. **Resolution**: AI steps need a downscaled copy that fits in 6 GB
-   VRAM. Real-ESRGAN x2 already restores most of that resolution, and
-   the final Lanczos upsample brings the result back to native.
+1. **Bit depth**: classical steps stay on float32 linear RGB in [0, 1];
+   AI steps (SCUNet, Real-ESRGAN, CodeFormer) take uint8 sRGB. The float
+   state survives across consecutive classical steps without quantisation.
 
-3. **VRAM hygiene**: after each GPU step we call
-   `torch.cuda.empty_cache()` so the next model fits in 6 GB.
+2. **VRAM hygiene**: after each GPU step we call
+   ``torch.cuda.empty_cache()`` so the next model fits in 6 GB.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -33,12 +36,13 @@ from app.enhancement.classical import (
     tone_map,
     white_balance,
 )
+from app.enhancement.colorspace import linear_rec2020_to_srgb_u8, srgb_u8_to_linear_rec2020
 from app.enhancement.denoise import scunet_denoise
-from app.enhancement.downsample import scale as lanczos_scale
-from app.enhancement.engine.plan import EnhancementPlan
+from app.enhancement.downsample import lanczos_resize, resize_float
+from app.enhancement.engine.plan import EnhancementPlan, StepSpec
 from app.enhancement.face_restore import codeformer_restore
 from app.enhancement.tone_balance import recover_backlit
-from app.enhancement.upsample_final import upsample_final
+from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import realesrgan_x2
 
 log = logging.getLogger(__name__)
@@ -54,12 +58,47 @@ def _free_gpu() -> None:
         pass
 
 
-def _to_u8(rgb_f01: Array) -> Array:
-    return (np.clip(rgb_f01, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+def _to_u8(rgb_lin: Array) -> Array:
+    """AI boundary: linear Rec.2020 float -> display-referred sRGB uint8."""
+    return linear_rec2020_to_srgb_u8(rgb_lin)
 
 
 def _from_u8(rgb_u8: Array) -> Array:
-    return (rgb_u8.astype(np.float32) * (1.0 / 255.0)).astype(np.float32)
+    return srgb_u8_to_linear_rec2020(rgb_u8)
+
+
+def apply_ai_delta(
+    x_lin: Array,
+    model_fn: Callable[[Array], Array],
+    *,
+    strength: float = 1.0,
+    scale: int = 1,
+) -> Array:
+    """Run an 8-bit sRGB model and merge only its *change* (delta) into the linear float image.
+
+    The model sees `_to_u8(x_lin)` and returns 8-bit sRGB; we compute the delta the model
+    introduced (in linear space) and add it to the *full-precision* float base, so the master
+    keeps 16-bit precision instead of being quantised to the model's 8-bit output. When
+    `scale > 1` (Real-ESRGAN x2) the model must return a `scale`x-larger image; the base and the
+    model's 8-bit reference are Lanczos-upsampled so the delta lines up with the model's larger
+    output. A model that does not honour `scale` raises `ValueError`.
+
+    `x_lin` is float32 linear Rec.2020 in [0, 1]; returns the same, clipped.
+    """
+    x8 = _to_u8(x_lin)
+    y8 = model_fn(x8)
+    h, w = x_lin.shape[:2]
+    if scale > 1:
+        if y8.shape[:2] != (h * scale, w * scale):
+            raise ValueError(
+                f"model returned {y8.shape[:2]} for scale={scale}; expected {(h * scale, w * scale)}"
+            )
+        base = resize_float(x_lin, (w * scale, h * scale))  # full-precision Lanczos upsample
+        ref8 = lanczos_resize(x8, (w * scale, h * scale))  # sRGB-domain, like the model saw
+    else:
+        base, ref8 = x_lin, x8
+    delta = _from_u8(y8) - _from_u8(ref8)
+    return np.clip(base + strength * delta, 0.0, 1.0).astype(np.float32)
 
 
 _PRE_AI = {
@@ -72,7 +111,7 @@ _PRE_AI = {
     "saturation_adjust",
 }
 _AI = {"scunet_denoise", "realesrgan_upscale", "codeformer_restore"}
-_POST_AI = {"unsharp_mask", "clahe_local_contrast", "tone_map_final"}
+_POST_AI = {"unsharp_mask", "clahe_local_contrast"}
 
 
 def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Array:
@@ -104,6 +143,7 @@ def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Ar
             target_rg=params.get("target_rg", 1.0),
             target_bg=params.get("target_bg", 1.0),
             strength=params.get("strength", 1.0),
+            neutral_only=bool(params.get("neutral_only", False)),
         )
     if name == "saturation_adjust":
         return color.adjust_saturation(
@@ -124,12 +164,6 @@ def _apply_classical(name: str, rgb_f01: Array, params: Mapping[str, Any]) -> Ar
             clip_limit=params.get("clip_limit", 2.0),
             tile_grid=tuple(params.get("tile_grid", (8, 8))),
         )
-    if name == "tone_map_final":
-        return tone_map.filmic_tone_map(
-            rgb_f01,
-            shoulder=params.get("shoulder", 0.88),
-            toe=params.get("toe", 0.02),
-        )
     raise ValueError(f"unknown classical step: {name}")
 
 
@@ -145,43 +179,59 @@ def _apply_ai(name: str, rgb_u8: Array, params: Mapping[str, Any], has_faces: bo
     raise ValueError(f"unknown AI step: {name}")
 
 
+def apply_pre_ai(img: Array, plan: EnhancementPlan) -> Array:
+    """Pre-AI classical steps, applied to float32 linear RGB at native resolution."""
+    for step in plan.steps:
+        if step.name in _PRE_AI:
+            log.info("engine[pre-AI]  %s %s -- %s", step.name, step.params, step.reason)
+            img = _apply_classical(step.name, img, step.params)
+    return img
+
+
+def apply_post_ai(img: Array, plan: EnhancementPlan) -> Array:
+    """Post-AI classical steps, returning clipped float32 RGB in [0, 1]."""
+    for step in plan.steps:
+        if step.name in _POST_AI:
+            log.info("engine[post-AI] %s %s -- %s", step.name, step.params, step.reason)
+            img = _apply_classical(step.name, img, step.params)
+    return np.clip(img, 0.0, 1.0).astype(np.float32)
+
+
+def ai_steps(plan: EnhancementPlan) -> list[StepSpec]:
+    """The plan's AI steps, in order."""
+    return [s for s in plan.steps if s.name in _AI]
+
+
 def run_plan(
     rgb_f01: Array,
     plan: EnhancementPlan,
     native_size: tuple[int, int],
 ) -> Array:
     """Execute the plan, returning float32 RGB in [0, 1] at native_size (W, H)."""
-    img = np.clip(rgb_f01, 0.0, 1.0).astype(np.float32)
+    img = apply_pre_ai(rgb_f01, plan)
 
-    # Pass 1: pre-AI classical steps at full native resolution.
-    for step in plan.steps:
-        if step.name in _PRE_AI:
-            log.info("engine[pre-AI]  %s %s -- %s", step.name, step.params, step.reason)
-            img = _apply_classical(step.name, img, step.params)
-
-    ai_steps = [s for s in plan.steps if s.name in _AI]
-    if ai_steps:
-        u8 = _to_u8(img)
+    ai = ai_steps(plan)
+    if ai:
         if settings.enhance_ai_scale < 0.999:
-            u8 = lanczos_scale(u8, settings.enhance_ai_scale)
-        for step in ai_steps:
+            h, w = img.shape[:2]
+            s = settings.enhance_ai_scale
+            img = resize_float(img, (round(w * s), round(h * s)))
+        for step in ai:
             log.info("engine[ai]      %s %s -- %s", step.name, step.params, step.reason)
-            u8 = _apply_ai(step.name, u8, step.params, plan.has_faces)
+            img = apply_ai_delta(
+                img,
+                partial(_apply_ai, step.name, params=step.params, has_faces=plan.has_faces),
+                scale=2 if step.name == "realesrgan_upscale" else 1,
+            )
             _free_gpu()
-        u8 = upsample_final(u8, native_size)
-        img = _from_u8(u8)
+        target = parse_target(settings.enhance_target_res, native_size)
+        h, w = img.shape[:2]
+        if (w, h) != target:
+            img = resize_float(img, target)
     else:
         target_w, target_h = native_size
         h, w = img.shape[:2]
         if (w, h) != (target_w, target_h):
-            u8 = _to_u8(img)
-            u8 = upsample_final(u8, native_size)
-            img = _from_u8(u8)
+            img = resize_float(img, native_size)
 
-    # Pass 2: post-AI classical steps at native resolution.
-    for step in plan.steps:
-        if step.name in _POST_AI:
-            log.info("engine[post-AI] %s %s -- %s", step.name, step.params, step.reason)
-            img = _apply_classical(step.name, img, step.params)
-
-    return np.clip(img, 0.0, 1.0).astype(np.float32)
+    return apply_post_ai(img, plan)

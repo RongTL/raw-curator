@@ -47,18 +47,20 @@ For each batch:
    | no       | `enhance_only`     | RAW stays in place (e.g. `incoming/`) | Enhanced TIFF in `photos/exported/`; **original RAW deleted from disk** |
 
 7. **Enhance** — runs on every decided photo (yes or no) via the **Auto
-   Enhancement Engine**. Darktable develops the RAW to a 16-bit linear
-   TIFF; the engine then measures the input across five quality
-   dimensions (exposure, dynamic range, color, sharpness, noise),
-   persists a `quality_reports` row, and builds an ordered plan of
-   classical + AI steps tuned to that photo's measured deficits.
-   Classical steps (exposure/WB/saturation/CLAHE/unsharp/filmic
-   tone-map) run at native resolution in float32; AI steps (SCUNet
-   denoise → Real-ESRGAN x2 → CodeFormer if faces) run on a downscaled
-   copy that fits 6 GB VRAM, then the result is resampled back and
-   written as a 16-bit TIFF to `photos/exported/`. For `no` photos
-   (`action == "enhance_only"`) the source RAW is deleted **after** the
-   TIFF is written — if enhance fails, the original is preserved.
+   Enhancement Engine**. Darktable develops the RAW with its sigmoid
+   workflow into a 16-bit **linear Rec.2020** master (embedded ICC
+   profile + EXIF copied from the source); the engine measures the frame
+   across five quality dimensions (exposure, dynamic range, color,
+   sharpness, noise) and builds a **per-photo recipe** of classical + AI
+   steps tuned to its measured deficits — the recipe is visible in the
+   review UI. Each AI step (SCUNet denoise, Real-ESRGAN when enlarging or
+   the source is small, CodeFormer for faces that are small, soft, or in
+   a noisy frame) sees an 8-bit sRGB copy but is merged back as a *delta*
+   into the float master, so the 16-bit master is never quantised. Every result passes a
+   verification gate before it is written to `photos/exported/`; for
+   `no` photos (`action == "enhance_only"`) the source RAW is deleted
+   only after the TIFF is written **and** the verdict is not degraded —
+   if enhance fails or degrades the frame, the original is preserved.
    **Only runs on RAW sources** — already-developed JPEG/TIFF/HEIC
    inputs are skipped with a warning since the engine expects sensor
    data, not 8-bit display-referred pixels.
@@ -206,16 +208,20 @@ The most useful overrides:
 
 | Variable                          | Default       | Purpose                                                                 |
 |-----------------------------------|---------------|-------------------------------------------------------------------------|
+| `RAWCURATOR_DARKTABLE_WORKFLOW`   | `scene-referred (sigmoid)` | darktable pixel workflow for develop; filmic is the 4.6 default look |
 | `RAWCURATOR_ENHANCE_AI_SCALE`     | `1.0`         | Pre-AI downscale factor. `1.0` means AI sees the full native source — maximum detail recovery, peaks ~5.5 GB on a 6 GB card (24 MP). Drop to `0.85` / `0.7` / `0.5` progressively if OOM or if other CUDA processes share the GPU. |
 | `RAWCURATOR_ENHANCE_DENOISE`      | `true`        | Skip SCUNet if false                                                    |
 | `RAWCURATOR_ENHANCE_DENOISE_STRENGTH` | `0.75`    | Blends SCUNet output with the input. `1.0` is full denoise; `<1` retains natural micro-texture so the image doesn't look plastic. |
 | `RAWCURATOR_ENHANCE_REALESRGAN_FIDELITY` | `0.7` | Blends Real-ESRGAN output with a Lanczos upscale. `1.0` is full AI sharpening (riskier on skin/sky/foliage); `0.7` keeps most detail recovery while softening AI artifacts; drop to `0.5` for very soft output. |
 | `RAWCURATOR_ENHANCE_FACE_RESTORE` | `true`        | Skip CodeFormer if false                                                |
 | `RAWCURATOR_ENHANCE_CODEFORMER_W` | `0.85`        | Higher = more faithful to the original skin texture (natural). Lower = stronger restoration (waxy/airbrushed risk). Default leans natural. |
+| `RAWCURATOR_ENHANCE_FACE_RESTORE_MAX_PX` | `300` | Faces whose box is at least this many pixels on the long side and sharp are left alone; smaller or soft faces get CodeFormer. |
+| `RAWCURATOR_ENHANCE_FACE_MIN_SIMILARITY` | `0.5` | ArcFace cosine between a face before and after CodeFormer; below this the original face is pasted back. |
 | `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY` | `true`    | Auto-detects backlit scenes (dense shadows + dense highlights) and lifts the subject while protecting background highlights. Edge-preserving — no HDR halos. |
 | `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT` | `0.4` | `0` disables; `~0.4` is natural; `>0.7` starts looking HDR.            |
 | `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT` | `0.15` | How aggressively the lift rolls off above ~65% luminance.        |
 | `RAWCURATOR_ENHANCE_TARGET_RES`   | `200%`        | `native` (downsample back to source) \| `200%` (keep Real-ESRGAN's 2x output — 24 MP source becomes ~96 MP, TIFFs ~4x larger on disk) \| `WIDTHxHEIGHT` (explicit pixel size). |
+| `RAWCURATOR_ENHANCE_SR_MIN_LONG_EDGE` | `3000`    | Real-ESRGAN runs only when enlarging (target > native) or when the source long edge is below this many pixels. |
 | `RAWCURATOR_SCUNET_TILE` / `_TILE_PAD` | `512` / `32` | SCUNet tile edge and reflective padding (px). Lower the tile (multiples of 64) on OOM. |
 | `RAWCURATOR_CODEFORMER_MAX_LONG_EDGE` | `2048`    | Long-edge cap fed to CodeFormer's face detector, which runs on the full frame. Lower on OOM. |
 | `RAWCURATOR_BURST_SECONDS`        | `2`           | EXIF timestamp window for burst grouping                                |
@@ -256,9 +262,11 @@ no-op TIFF).
   `codeformer-pip`'s in-container default cache, not `/data/models/`.
   Each fresh `podman run --rm` re-downloads them. Workaround: set
   `XDG_CACHE_HOME=/data/models/codeformer-cache` in `compose.yaml`.
-- **No formal pytest acceptance suite against real RAW fixtures** —
-  validation was hand-run. Unit tests cover schema, filters,
-  clustering, and decision rules.
+- **Real-RAW acceptance coverage is plan-level only** —
+  `tests/test_engine_corpus.py` asserts the planned steps for each RAW in
+  `tests/data/corpus` (skipped via the `real_raw` marker unless the fixtures
+  are present); the developed-pixel quality is still validated by eye. Unit
+  tests cover schema, filters, clustering, and decision rules.
 
 ---
 

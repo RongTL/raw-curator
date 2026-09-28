@@ -42,10 +42,15 @@ class Settings(BaseSettings):
 
     enhance_ai_scale: float = 1.0  # AI sees full native (24MP -> ~6kx4k). Lower to 0.85/0.7 if OOM.
     enhance_target_res: str = "200%"  # Keep Real-ESRGAN's x2 output (12kx8k); preserves AI detail.
+    enhance_sr_min_long_edge: int = 3000  # Real-ESRGAN runs only when enlarging or source smaller
     enhance_denoise: bool = True
     enhance_denoise_strength: float = 0.75  # 1.0 = full SCUNet; <1 keeps natural micro-texture
     enhance_face_restore: bool = True
     enhance_codeformer_w: float = 0.85  # higher = more faithful skin, less waxy/airbrushed
+    enhance_face_restore_max_px: int = 300  # faces >= this (long side) and sharp skip CodeFormer
+    enhance_face_min_similarity: float = (
+        0.5  # ArcFace cos before/after; below -> paste original back
+    )
     enhance_realesrgan_fidelity: float = (
         0.7  # 1.0 = full Real-ESRGAN; ~0.7 softens AI artifacts while keeping most detail recovery
     )
@@ -66,6 +71,9 @@ class Settings(BaseSettings):
     monitor_disk_warn_free_gb: float = 50.0
 
     log_level: str = "INFO"  # root logger level for every raw-curator process
+
+    # darktable pixel workflow for the develop step; filmic is darktable 4.6's own default look.
+    darktable_workflow: str = "scene-referred (sigmoid)"
 
     @property
     def db_path(self) -> Path:

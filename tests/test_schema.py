@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "faces",
     "cluster_members",
     "decisions",
+    "quality_reports",
 }
 
 
@@ -31,6 +32,18 @@ def test_session_meta_can_be_inserted(tmp_db: Session) -> None:
     row = tmp_db.execute(select(SessionMeta)).scalar_one()
     assert row.id == 1
     assert row.started_at is not None
+
+
+def test_quality_reports_has_plan_and_verify_columns(tmp_db: Session) -> None:
+    cols = {c["name"] for c in inspect(tmp_db.bind).get_columns("quality_reports")}
+    assert {
+        "plan_json",
+        "verify_json",
+        "score_q_after",
+        "degraded",
+        "neutral_fraction",
+        "lap_var_top",
+    } <= cols
 
 
 def test_photo_phash_index(tmp_db: Session) -> None:

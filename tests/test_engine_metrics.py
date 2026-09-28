@@ -11,13 +11,13 @@ import numpy as np
 import pytest
 
 from app.enhancement.engine.metrics import (
+    as_linear_float01,
     color_metrics,
     dynamic_range_metrics,
     exposure_metrics,
     measure_all,
     noise_metrics,
     sharpness_metrics,
-    to_float01,
 )
 from app.enhancement.engine.scoring import score_report
 
@@ -30,6 +30,15 @@ def _noisy(value: float, sigma: float, h: int = 256, w: int = 256, seed: int = 0
     rng = np.random.default_rng(seed)
     base = np.full((h, w, 3), value, dtype=np.float32)
     return np.clip(base + rng.normal(0, sigma, base.shape).astype(np.float32), 0.0, 1.0)
+
+
+def test_luma_u8_uses_the_shared_srgb_encoder() -> None:
+    from app.enhancement.colorspace import encode_srgb, luma
+    from app.enhancement.engine.metrics import luma_u8
+
+    img = _noisy(0.4, 0.05, 32, 32)
+    expected = (encode_srgb(luma(img)) * 255.0 + 0.5).astype(np.uint8)
+    assert np.array_equal(luma_u8(img), expected)
 
 
 def test_exposure_metrics_on_midgray() -> None:
@@ -78,6 +87,14 @@ def test_color_metrics_neutral_is_neutral() -> None:
     assert 0.95 < m["bg_ratio"] < 1.05
 
 
+def test_neutral_pixels_estimate_ignores_a_blue_sky() -> None:
+    img = np.zeros((20, 20, 3), dtype=np.float32)
+    img[:10] = (0.2, 0.4, 0.9)  # sky: strongly chromatic, excluded
+    img[10:] = (0.5, 0.5, 0.5)  # grey wall: neutral
+    m = color_metrics(img)
+    assert m["neutral_fraction"] == 0.5 and abs(m["rg_neutral"] - 1.0) < 1e-6
+
+
 def test_sharpness_low_on_blur() -> None:
     m = sharpness_metrics(_gray(0.5))
     assert m["lap_var"] < 1.0
@@ -90,19 +107,26 @@ def test_sharpness_higher_on_edges() -> None:
     assert m["lap_var"] > 100.0
 
 
+def test_lap_var_top_exceeds_global_on_a_half_sharp_frame() -> None:
+    img = np.zeros((64, 64, 3), dtype=np.float32)
+    img[:, 32:] = np.random.default_rng(6).random((64, 32, 3), dtype=np.float32)
+    m = sharpness_metrics(img)
+    assert m["lap_var_top"] > m["lap_var"]
+
+
 def test_noise_increases_with_sigma() -> None:
     quiet = noise_metrics(_gray(0.5))
     loud = noise_metrics(_noisy(0.5, sigma=0.10))
     assert loud["luma_noise"] > quiet["luma_noise"]
 
 
-def test_to_float01_accepts_common_dtypes() -> None:
+def test_as_linear_float01_accepts_common_dtypes() -> None:
     u8 = np.array([[[0, 128, 255]]], dtype=np.uint8)
-    f = to_float01(u8)
+    f = as_linear_float01(u8)
     assert f.dtype == np.float32
     assert f.max() == pytest.approx(1.0, abs=1e-3)
     u16 = np.array([[[0, 32768, 65535]]], dtype=np.uint16)
-    f16 = to_float01(u16)
+    f16 = as_linear_float01(u16)
     assert f16.max() == pytest.approx(1.0, abs=1e-3)
 
 

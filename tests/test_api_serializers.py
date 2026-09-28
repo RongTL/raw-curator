@@ -71,3 +71,42 @@ def test_photo_detail_extends_summary_with_exif_faces_and_report() -> None:
     assert out["faces"] == [{"x": 1, "y": 2, "w": 3, "h": 4, "score": 0.9}]
     assert out["quality_report"] is None
     assert out["decision"] is None
+
+
+def test_quality_report_payload_exposes_recipe_and_verdict() -> None:
+    from app.api.serializers import quality_report_payload
+    from app.models import PhotoQualityReport
+
+    qr = PhotoQualityReport(
+        photo_hash="abc123",
+        mean_luma=1,
+        shadow_clip=0,
+        highlight_clip=0,
+        midtone_ratio=0,
+        midtone_deviation=0,
+        dr_p95_p5=0,
+        local_dr_mean=0,
+        rg_ratio=1,
+        bg_ratio=1,
+        avg_saturation=0,
+        oversat_ratio=0,
+        lap_var=0,
+        edge_density=0,
+        hf_energy=0,
+        luma_noise=0,
+        chroma_noise=0,
+        score_exposure=0,
+        score_dynamic_range=0,
+        score_color=0,
+        score_sharpness=0,
+        score_noise=0,
+        score_q=50.0,
+        plan_json='{"steps": [{"name": "unsharp_mask", "params": {"amount": 0.4}, "reason": "soft"}]}',
+        verify_json='{"degraded": false, "reasons": []}',
+        score_q_after=55.0,
+        degraded=0,
+    )
+    out = quality_report_payload(qr)
+    assert out["plan"]["steps"][0]["name"] == "unsharp_mask"
+    assert out["verify"] == {"degraded": False, "reasons": []}
+    assert out["score_q_after"] == 55.0 and out["degraded"] is False

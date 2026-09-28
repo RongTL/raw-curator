@@ -1,7 +1,7 @@
 """Quality measurement per spec §1-§5.
 
-Operates on full-resolution float32 linear RGB in [0, 1] for highest
-accuracy. A 24 MP image at float32 RGB is ~290 MB — comfortable on a
+Input contract: linear Rec.2020 float32 in [0, 1] (what develop_full produces).
+A 24 MP image at float32 RGB is ~290 MB — comfortable on a
 24 GB host. cv2 is used for the heavy-lifting kernels (Laplacian, Canny,
 color conversion) — they are SIMD-vectorised and release the GIL, so they
 pipeline well alongside Python work on a 4C/8T Ryzen 3 3100.
@@ -21,7 +21,13 @@ from collections.abc import Sequence
 import numpy as np
 
 from app.arrays import Array
-from app.enhancement.colorspace import luma, rgb_to_ycbcr
+from app.enhancement.colorspace import (
+    encode_srgb,
+    linear_srgb_to_oklab,
+    luma,
+    rec2020_to_srgb_linear,
+    rgb_to_ycbcr,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +41,12 @@ _NOISE_FLAT_GRADIENT_MAX = 4.0  # 8-bit luma gradient ceiling for a "flat" patch
 _FFT_CENTER_FRAC = 0.25  # the band we treat as DC/low-frequency
 
 
-def to_float01(img: Array) -> Array:
-    """Normalize uint8 / uint16 / float to float32 [0, 1]."""
+def as_linear_float01(img: Array) -> Array:
+    """Normalize uint8 / uint16 / float to float32 [0, 1].
+
+    Values are taken as linear light; the sRGB encoding for the spec's 8-bit
+    thresholds happens in luma_u8.
+    """
     if img.dtype == np.float32:
         return np.clip(img, 0.0, 1.0)
     if img.dtype == np.float64:
@@ -48,24 +58,9 @@ def to_float01(img: Array) -> Array:
     raise TypeError(f"unsupported dtype {img.dtype} for quality measurement")
 
 
-def linear_to_srgb_u8(rgb_f01: Array) -> Array:
-    """Encode linear-light float to sRGB-gamma 8-bit (matches what a viewer shows)."""
-    a = 0.055
-    f = np.clip(rgb_f01, 0.0, 1.0)
-    low = f <= 0.0031308
-    out = np.where(low, 12.92 * f, (1.0 + a) * np.power(np.maximum(f, 1e-6), 1.0 / 2.4) - a)
-    return (out * 255.0 + 0.5).astype(np.uint8)
-
-
-def _luma_u8(rgb_f01: Array) -> Array:
-    lum = luma(rgb_f01)
-    # sRGB-encode the single-channel luma directly.
-    a = 0.055
-    f = np.clip(lum, 0.0, 1.0)
-    enc = np.where(
-        f <= 0.0031308, 12.92 * f, (1.0 + a) * np.power(np.maximum(f, 1e-6), 1.0 / 2.4) - a
-    )
-    return (enc * 255.0 + 0.5).astype(np.uint8)
+def luma_u8(rgb_f01: Array) -> Array:
+    """sRGB-encoded 8-bit luma, via the one shared OETF in ``colorspace.encode_srgb``."""
+    return (encode_srgb(luma(rgb_f01)) * 255.0 + 0.5).astype(np.uint8)
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +69,7 @@ def _luma_u8(rgb_f01: Array) -> Array:
 
 
 def exposure_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01)
+    lum = luma_u8(rgb_f01)
     hist = np.bincount(lum.ravel(), minlength=256).astype(np.float64)
     total = float(hist.sum())
     if total <= 0:
@@ -113,7 +108,7 @@ def exposure_metrics(rgb_f01: Array) -> dict[str, float]:
 
 
 def dynamic_range_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01).astype(np.float32)
+    lum = luma_u8(rgb_f01).astype(np.float32)
     p5, p95 = np.percentile(lum, [5, 95])
     dr = float(p95 - p5)
     height, width = lum.shape
@@ -132,6 +127,22 @@ def dynamic_range_metrics(rgb_f01: Array) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 
+def neutral_mask(rgb_f01: Array) -> Array:
+    """Boolean HxW mask of near-neutral pixels (spec §3.1, Task 22).
+
+    A pixel is near-neutral when its channel spread is small relative to its
+    brightest channel (``max(c) - min(c) < 0.08 * max(c)``) and its luma sits
+    in the mid range ``(0.05, 0.9)`` — dark and blown pixels carry no reliable
+    colour. Input is linear Rec.2020 float32 in [0, 1]. Shared by
+    ``color_metrics`` and ``gray_world(neutral_only=True)`` so the planner's
+    decision and the step's gains come from identical pixels.
+    """
+    mx = rgb_f01.max(axis=-1)
+    mn = rgb_f01.min(axis=-1)
+    lum = luma(rgb_f01)
+    return ((mx - mn) < 0.08 * np.maximum(mx, 1e-6)) & (lum > 0.05) & (lum < 0.9)
+
+
 def color_metrics(
     rgb_f01: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
@@ -147,6 +158,27 @@ def color_metrics(
     sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0).astype(np.float32)
     avg_sat = float(sat.mean())
     oversat = float((sat > 0.85).mean())
+
+    # Perceptual chroma: mean OKLCh chroma over a 4x-subsampled frame (the metric
+    # is a global average, so every 16th pixel is plenty and keeps the two matrix
+    # mults cheap). Monochrome intent shows up as mean_chroma < 0.01, which gates
+    # the saturation boost in the planner.
+    sub = rgb_f01[::4, ::4]
+    oklab = linear_srgb_to_oklab(rec2020_to_srgb_linear(sub))
+    mean_chroma = float(np.mean(np.sqrt(oklab[..., 1] ** 2 + oklab[..., 2] ** 2)))
+
+    # White balance is estimated from near-neutral pixels only, so a warm sky
+    # or tungsten glow can't be mistaken for a colour cast (Task 22).
+    neutral = neutral_mask(rgb_f01)
+    neutral_fraction = float(neutral.mean())
+    rg_neutral: float | None
+    bg_neutral: float | None
+    if neutral_fraction >= 0.02:
+        nv = rgb_f01[neutral].mean(axis=0)
+        gn = max(float(nv[1]), 1e-6)
+        rg_neutral, bg_neutral = float(nv[0] / gn), float(nv[2] / gn)
+    else:
+        rg_neutral = bg_neutral = None
 
     skin_hue_var: float | None = None
     if face_boxes:
@@ -175,6 +207,10 @@ def color_metrics(
         "avg_saturation": avg_sat,
         "oversat_ratio": oversat,
         "skin_hue_var": skin_hue_var,
+        "neutral_fraction": neutral_fraction,
+        "rg_neutral": rg_neutral,
+        "bg_neutral": bg_neutral,
+        "mean_chroma": mean_chroma,
     }
 
 
@@ -184,7 +220,7 @@ def color_metrics(
 
 
 def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01)
+    lum = luma_u8(rgb_f01)
     try:
         import cv2
 
@@ -197,6 +233,12 @@ def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
         lap = _conv2d_same(lum.astype(np.float32), kernel)
         lap_var = float(lap.var())
         edge_density = float((np.abs(lap) > 24).mean())
+
+    # Subject-focused sharpness: variance of the Laplacian per 16x16 block, then
+    # the mean of the sharpest quartile. On a bokeh portrait the global lap_var is
+    # dragged down by the creamy background, but lap_var_top stays high where the
+    # in-focus subject sits — so the planner won't unsharp a soft background.
+    lap_var_top = _lap_var_top(lap, lap_var)
 
     # FFT high-frequency energy on a downscaled luma (24 MP FFT is wasteful).
     height, width = lum.shape
@@ -221,7 +263,22 @@ def sharpness_metrics(rgb_f01: Array) -> dict[str, float]:
         "lap_var": lap_var,
         "edge_density": edge_density,
         "hf_energy": hf_energy,
+        "lap_var_top": lap_var_top,
     }
+
+
+def _lap_var_top(lap: Array, fallback: float) -> float:
+    """Mean of the top-quartile 16x16 block variances of a Laplacian map."""
+    height, width = lap.shape
+    bh = height // 16
+    bw = width // 16
+    if bh == 0 or bw == 0:
+        return fallback
+    blocks = lap[: bh * 16, : bw * 16].reshape(bh, 16, bw, 16)
+    block_var = blocks.var(axis=(1, 3)).ravel()
+    cut = np.percentile(block_var, 75)
+    top = block_var[block_var >= cut]
+    return float(top.mean()) if top.size else fallback
 
 
 def _conv2d_same(img: Array, kernel: Array) -> Array:
@@ -241,7 +298,7 @@ def _conv2d_same(img: Array, kernel: Array) -> Array:
 
 
 def noise_metrics(rgb_f01: Array) -> dict[str, float]:
-    lum = _luma_u8(rgb_f01)
+    lum = luma_u8(rgb_f01)
     luma_noise = _flat_patch_std(lum)
 
     try:
@@ -292,7 +349,7 @@ def measure_all(
     rgb: Array,
     face_boxes: Sequence[tuple[int, int, int, int]] | None = None,
 ) -> dict[str, float | None]:
-    rgb_f01 = to_float01(rgb)
+    rgb_f01 = as_linear_float01(rgb)
     if rgb_f01.ndim != 3 or rgb_f01.shape[-1] != 3:
         raise ValueError(f"expected HxWx3 image, got shape {rgb_f01.shape}")
     out: dict[str, float | None] = {}

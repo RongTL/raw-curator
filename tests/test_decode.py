@@ -170,3 +170,39 @@ def test_load_tiff_rgb8_promotes_grayscale(tmp_path: Path) -> None:
     tiff = tmp_path / "gray.tif"
     tifffile.imwrite(tiff, arr)
     assert decode.load_tiff_rgb8(tiff).shape == (6, 6, 3)
+
+
+ICC = Path("tests/fixtures/linear_rec2020.icc").read_bytes()
+
+
+def test_icc_description_parses_darktable_profile() -> None:
+    assert decode.icc_description(ICC) == "Linear Rec2020 RGB"
+    assert decode.icc_description(b"not an icc") is None
+
+
+def test_load_tiff_rgb8_converts_linear_rec2020_masters(tmp_path: Path) -> None:
+    lin = np.full((4, 4, 3), int(0.18 * 65535), dtype=np.uint16)
+    tifffile.imwrite(
+        tmp_path / "lin.tif", lin, photometric="rgb", extratags=[(34675, "B", len(ICC), ICC, True)]
+    )
+    out = decode.load_tiff_rgb8(tmp_path / "lin.tif")
+    assert (
+        out.dtype == np.uint8 and 115 <= int(out[0, 0, 1]) <= 120
+    )  # encoded, not bit-shifted (46)
+
+
+def test_load_tiff_rgb8_keeps_untagged_tiffs_as_srgb(tmp_path: Path) -> None:
+    srgb = np.full((4, 4, 3), 30000, dtype=np.uint16)
+    tifffile.imwrite(tmp_path / "srgb.tif", srgb, photometric="rgb")
+    assert int(decode.load_tiff_rgb8(tmp_path / "srgb.tif")[0, 0, 0]) == 30000 >> 8
+
+
+def test_icc_description_bounds_a_malformed_tag_count() -> None:
+    import time
+
+    icc = bytearray(132)  # header only, no room for any tag records
+    icc[128:132] = (2**31).to_bytes(4, "big")  # absurd tag count
+    start = time.perf_counter()
+    result = decode.icc_description(bytes(icc))
+    assert result is None
+    assert time.perf_counter() - start < 1.0  # bounded, not 2**31 iterations

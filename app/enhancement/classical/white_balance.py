@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 
 from app.arrays import Array
+from app.enhancement.engine.metrics import neutral_mask
 
 
 def gray_world(
@@ -19,11 +20,22 @@ def gray_world(
     target_rg: float = 1.0,
     target_bg: float = 1.0,
     strength: float = 1.0,
+    neutral_only: bool = False,
 ) -> Array:
     if strength <= 0.0:
         return rgb
-    flat = rgb.reshape(-1, 3)
-    avg = flat.mean(axis=0)
+    if neutral_only:
+        # Estimate the cast from the same near-neutral pixels the planner gated on,
+        # so a saturated sky can't drag the gains. Fall back to the whole-frame
+        # mean when too few neutrals exist (never divide by ~zero).
+        mask = neutral_mask(rgb)
+        avg = (
+            rgb[mask].mean(axis=0)
+            if float(mask.mean()) >= 0.02
+            else rgb.reshape(-1, 3).mean(axis=0)
+        )
+    else:
+        avg = rgb.reshape(-1, 3).mean(axis=0)
     g = max(float(avg[1]), 1e-6)
     rg = float(avg[0] / g)
     bg = float(avg[2] / g)

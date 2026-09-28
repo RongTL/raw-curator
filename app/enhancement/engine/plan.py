@@ -13,6 +13,7 @@ set of admissible keys varies per step; the runner validates at dispatch.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -32,7 +33,8 @@ StepName = Literal[
     "codeformer_restore",  # params: weight; only when faces present
     # Layer 1 — sharpening (spec §4)
     "unsharp_mask",  # luminance unsharp, params: amount, radius, threshold
-    # Layer 1 — final pass (spec §7 last step)
+    # Retained for schema/registry compatibility; the planner no longer emits it
+    # (darktable's sigmoid workflow provides the output roll-off at develop time).
     "tone_map_final",  # filmic curve, params: shoulder, toe
 ]
 
@@ -42,6 +44,18 @@ class StepSpec:
     name: StepName
     params: dict[str, Any] = field(default_factory=dict)
     reason: str = ""  # human-readable why-we-added-it, surfaced in logs
+
+
+@dataclass(frozen=True)
+class FaceInfo:
+    """One detected face, measured on the developed frame.
+
+    box is (x, y, w, h) in current-image pixels; lap_var is the Laplacian
+    variance of the sRGB-encoded luma of the face crop (higher = sharper).
+    """
+
+    box: tuple[int, int, int, int]
+    lap_var: float
 
 
 @dataclass(frozen=True)
@@ -87,6 +101,17 @@ class QualityReport:
     score_noise: float
     score_q: float  # weighted composite
 
+    # §3 Color — near-neutral white balance (Task 22). Appended last with
+    # defaults so positional construction elsewhere keeps working.
+    neutral_fraction: float = 0.0  # share of near-neutral pixels
+    rg_neutral: float | None = None  # r/g over neutral pixels; None if < 2% neutral
+    bg_neutral: float | None = None  # b/g over neutral pixels; None if < 2% neutral
+
+    # Task 23 — perceptual chroma + subject-focused sharpness. Appended with
+    # defaults so positional/keyword construction elsewhere keeps working.
+    mean_chroma: float | None = None  # mean OKLCh chroma; monochrome when < 0.01
+    lap_var_top: float | None = None  # mean lap variance of the sharpest 16x16 blocks
+
 
 @dataclass(frozen=True)
 class EnhancementPlan:
@@ -94,3 +119,15 @@ class EnhancementPlan:
     report: QualityReport
     has_faces: bool
     note: str = ""
+
+
+def plan_to_json(plan: EnhancementPlan) -> str:
+    return json.dumps(
+        {
+            "has_faces": plan.has_faces,
+            "note": plan.note,
+            "steps": [
+                {"name": s.name, "params": dict(s.params), "reason": s.reason} for s in plan.steps
+            ],
+        }
+    )
