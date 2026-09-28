@@ -48,6 +48,7 @@ def test_photo_summary_shape() -> None:
     assert out["hash"] == "abc123"
     assert out["filename"] == "IMG_0001.CR3"
     assert out["thumb_url"] == "/cache/thumbs/abc123.jpg"
+    assert out["preview_url"] == "/cache/previews/abc123.jpg"  # Compare uses the large preview
     assert out["captured_at"] == "2026-01-01T10:00:00"
     assert out["is_recommended"] is True
     assert out["decision"] is None

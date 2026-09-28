@@ -146,3 +146,12 @@ def test_decide_stages_and_lists_pending(client: TestClient) -> None:
         client.post("/api/decide/", json={"photo_hash": "zzz", "selected": "yes"}).status_code
         == 404
     )
+
+
+def test_pending_excludes_undecided_decisions(client: TestClient) -> None:
+    # A row that exists but is undecided (e.g. marked then reset) is not pending.
+    client.post("/api/decide/", json={"photo_hash": "bbb", "selected": "yes"})
+    client.post("/api/decide/", json={"photo_hash": "bbb", "selected": "undecided"})
+    hashes = {d["photo_hash"] for d in client.get("/api/decide/pending").json()}
+    assert "bbb" not in hashes  # undecided must not count as pending
+    assert "aaa" in hashes  # the yes decision still counts

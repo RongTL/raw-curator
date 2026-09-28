@@ -53,6 +53,7 @@ def photo_summary(
         "filename": Path(p.source_path).name if p.source_path else None,
         "file_kind": p.file_kind,
         "thumb_url": cache_url(p.thumb_path),
+        "preview_url": cache_url(p.preview_path),
         "enhanced_url": jpeg_url(p.source_path),
         "captured_at": p.captured_at.isoformat() if p.captured_at else None,
         "camera_body": p.camera_body,
