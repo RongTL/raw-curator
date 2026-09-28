@@ -147,6 +147,8 @@ class Decision(Base):
     favorite: Mapped[bool] = mapped_column(Integer, default=0)
     enhance_requested: Mapped[bool] = mapped_column(Integer, default=0)
     action: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
+    export_choice: Mapped[str] = mapped_column(String(16), nullable=False, default="undecided")
+    keep_raw: Mapped[bool] = mapped_column(Integer, nullable=False, default=1)
     applied: Mapped[bool] = mapped_column(Integer, default=0)
     note: Mapped[str | None] = mapped_column(Text)
 
