@@ -162,7 +162,8 @@ function App() {
           <h1 class="text-lg font-semibold">raw-curator</h1>
           <span class="text-sm text-zinc-400">
             ${status?.batch?.photos ?? 0} photos · ${status?.batch?.decided ?? 0} decided
-            · ${status?.batch?.incoming_files ?? 0} files incoming
+            · <span title="image files currently in photos/incoming/ — they stay there after ingest">
+              ${status?.batch?.incoming_files ?? 0} in incoming</span>
           </span>
         </div>
         <div class="flex items-center gap-2 text-sm">
