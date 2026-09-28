@@ -23,9 +23,8 @@ STAGES: tuple[StageDef, ...] = (
     StageDef("filter", "Filter", ("filter",), 1),
     StageDef("score", "Score", ("score",), 1),
     StageDef("cluster", "Cluster", ("cluster",), 1),
-    StageDef("submit", "Submit", ("submit",), 2),
-    StageDef("enhance", "Enhance", ("enhance",), 2),
-    StageDef("export-jpeg", "Export JPEG", ("export-jpeg",), 2),
+    StageDef("enhance", "Enhance", ("enhance",), 1),
+    StageDef("export", "Export", ("export",), 2),
 )
 
 STAGE_BY_NAME: Mapping[str, StageDef] = {s.name: s for s in STAGES}
