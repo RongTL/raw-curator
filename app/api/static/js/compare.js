@@ -39,7 +39,7 @@ export function CompareModal({ cluster, onClose, onDecide, onKeepOnly, busy }) {
   if (!cluster) return null;
   const title = cluster.kind === "unclustered" ? "Unclustered" : `Cluster #${cluster.id}`;
   return html`
-    <div class="fixed inset-0 bg-black/95 flex flex-col z-40" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 z-50 bg-black flex flex-col" role="dialog" aria-modal="true">
       <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm">
         <div class="flex items-center gap-3 min-w-0">
           <span class="font-semibold">Compare · ${title}</span>
