@@ -460,7 +460,7 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           <div><span class="kbd">1-5</span> stars · <span class="kbd">o/e/x</span> export · <span class="kbd">r</span> keep RAW · <span class="kbd">f</span> fav</div>
           <div><span class="kbd">←/→</span> nav · <span class="kbd">.</span> next undecided · <span class="kbd">b</span> view mode</div>
           <div><span class="kbd">space</span> next · <span class="kbd">esc</span> close</div>
-          <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "yes" : "no"}</div>
+          <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "✓" : "—"}</div>
           <div>captured ${data.captured_at ?? "—"}</div>
         </div>
       </div>
@@ -671,9 +671,9 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
 
   const onClusterAction = useCallback(async (clusterId, mode) => {
     if (mode === "reject_all" && !confirm(
-      `Reject every photo in cluster #${clusterId}?\n\n` +
-      `Each is staged "no": the RAW is enhanced, then the source RAW is deleted ` +
-      `after Submit. You can still change this before Submit.`
+      `Discard every photo in cluster #${clusterId}?\n\n` +
+      `Each is staged "discard": no JPEG is exported for it. This is ` +
+      `non-destructive — you can change any photo before Export.`
     )) return;
     setBusy(true);
     try {
@@ -687,8 +687,8 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     }
   }, [refreshAll]);
 
-  const onCompareDecide = useCallback(async (photoHash, selected) => {
-    await api.decide({ photo_hash: photoHash, selected });
+  const onCompareDecide = useCallback(async (photoHash, choice) => {
+    await api.decide({ photo_hash: photoHash, export_choice: choice });
     refreshAll();
   }, [refreshAll]);
 
@@ -699,7 +699,10 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
       // Skip already-applied (submitted) photos, mirroring stage_cluster.
       await Promise.all(compareCluster.photos
         .filter((p) => !p.decision?.applied)
-        .map((p) => api.decide({ photo_hash: p.hash, selected: p.hash === keepHash ? "yes" : "no" })));
+        .map((p) => api.decide({
+          photo_hash: p.hash,
+          export_choice: p.hash === keepHash ? "enhanced" : "discard",
+        })));
       setStatus(`Kept ${keepHash.slice(0, 8)}; rejected the rest of the cluster.`);
       refreshAll();
     } catch (e) {
