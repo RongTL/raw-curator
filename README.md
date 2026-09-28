@@ -49,7 +49,8 @@ For each batch:
 7. **Enhance** — runs on every decided photo (yes or no) via the **Auto
    Enhancement Engine**. Darktable develops the RAW with its sigmoid
    workflow into a 16-bit **linear Rec.2020** master (embedded ICC
-   profile + EXIF copied from the source); the engine measures the frame
+   profile + EXIF copied from the source); lens distortion and chromatic
+   aberration are corrected per-frame from EXIF (lensfun); the engine measures the frame
    across five quality dimensions (exposure, dynamic range, color,
    sharpness, noise) and builds a **per-photo recipe** of classical + AI
    steps tuned to its measured deficits — the recipe is visible in the

@@ -297,7 +297,10 @@ For each photo, enhance does the following:
 
 1. **darktable-cli** develops the RAW with its **sigmoid** workflow
    (using a matching `.xmp` sidecar from `xmp/` if present) to a 16-bit
-   **linear Rec.2020** TIFF, loaded as float32 RGB in `[0, 1]`.
+   **linear Rec.2020** TIFF, loaded as float32 RGB in `[0, 1]`. Lens
+   distortion and chromatic aberration are then corrected per-frame from
+   EXIF via lensfun (`RAWCURATOR_ENHANCE_LENS_CORRECTION`, default on);
+   frames whose lens lensfun cannot resolve pass through uncorrected.
 2. The engine **measures quality** across five dimensions — exposure,
    dynamic range, color, sharpness, noise — and writes a row into the
    `quality_reports` table (composite Q score + per-dimension
