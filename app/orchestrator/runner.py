@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_COMMAND: tuple[str, ...] = ("raw-curator",)
 LOG_TAIL_MAX_LINES = 2000
+SAVED_LOG_MAX_LINES = 5000  # cap when serving a finished stage's saved log file
 SIGKILL_GRACE_SECONDS = 10.0
 READER_DRAIN_TIMEOUT_SECONDS = 5.0
 READ_CHUNK_BYTES = 65536
@@ -105,6 +106,32 @@ class JobRunner:
         start = max(after - self._dropped, 0)
         lines = list(self._tail)[start:]
         return self._dropped + len(self._tail), lines
+
+    def saved_log(self, stage: str) -> tuple[str | None, list[str]]:
+        """The most recent saved log file's lines for ``stage``.
+
+        The in-memory tail (``log_lines``) holds only the currently-running
+        stage — it is cleared at every ``start``. This reads the newest
+        ``<stage>-NNN.log`` on disk instead, so a finished stage's output stays
+        viewable in the UI after the next stage cleared the live tail (and after
+        a server restart, when the record is gone). Returns ``(log_path, lines)``;
+        ``(None, [])`` when no saved log exists. Capped at the last
+        ``SAVED_LOG_MAX_LINES`` lines.
+        """
+        if not self._log_dir.exists():
+            return None, []
+        files = sorted(self._log_dir.glob(f"{stage}-*.log"))
+        if not files:
+            return None, []
+        latest = files[-1]  # zero-padded NNN sorts lexically == numerically
+        try:
+            text = latest.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return str(latest), []
+        lines = text.splitlines()
+        if len(lines) > SAVED_LOG_MAX_LINES:
+            lines = ["… (earlier lines truncated) …", *lines[-SAVED_LOG_MAX_LINES:]]
+        return str(latest), lines
 
     def clear_history(self) -> None:
         """Forget all runs (used by session reset). Must not be called mid-job."""

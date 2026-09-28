@@ -179,3 +179,17 @@ async def test_clear_history_while_running_raises(tmp_path: Path) -> None:
         runner.clear_history()
     await runner.cancel()
     await runner.wait()
+
+
+def test_saved_log_returns_latest_run(tmp_path: Path) -> None:
+    runner = JobRunner(log_dir=tmp_path, command=PY)
+    (tmp_path / "ingest-001.log").write_text("old run\n")
+    (tmp_path / "ingest-002.log").write_text("newest\nlines\n")
+    path, lines = runner.saved_log("ingest")
+    assert lines == ["newest", "lines"]
+    assert path is not None and path.endswith("ingest-002.log")
+
+
+def test_saved_log_missing_stage_is_empty(tmp_path: Path) -> None:
+    runner = JobRunner(log_dir=tmp_path, command=PY)
+    assert runner.saved_log("filter") == (None, [])
