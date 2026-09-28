@@ -57,7 +57,7 @@ export function TimelineBar({ status, panel, selectedStage, onSelectStage, onSho
       <${Chip} key=${s.name} label=${s.title} sub=${chipSub(s)} state=${s.state}
         active=${active} disabled=${false}
         onClick=${() => onSelectStage(s.name)} />`);
-    if (s.name === "cluster") {
+    if (s.name === "enhance") {
       chips.push(html`
         <${Chip} key="review" label="Review" state="review"
           sub="${batch.decided ?? 0}/${batch.photos ?? 0} decided"

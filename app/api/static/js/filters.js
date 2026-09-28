@@ -4,7 +4,7 @@
 import { html } from "./ui.js";
 
 export const EMPTY_FILTER = {
-  decision: "all", // all | undecided | yes | no
+  decision: "all", // all | undecided | original | enhanced | discard
   fav: false,
   faces: false,
   enhanced: false,
@@ -16,11 +16,12 @@ export function isFilterActive(f) {
 }
 
 export function matchesFilter(p, f) {
-  const sel = p.decision?.selected;
-  const undecided = !sel || sel === "undecided";
+  const choice = p.decision?.export_choice;
+  const undecided = !choice || choice === "undecided";
   if (f.decision === "undecided" && !undecided) return false;
-  if (f.decision === "yes" && sel !== "yes") return false;
-  if (f.decision === "no" && sel !== "no") return false;
+  if (f.decision === "original" && choice !== "original") return false;
+  if (f.decision === "enhanced" && choice !== "enhanced") return false;
+  if (f.decision === "discard" && choice !== "discard") return false;
   if (f.fav && !p.decision?.favorite) return false;
   if (f.faces && !(p.n_faces > 0)) return false;
   if (f.enhanced && !p.enhanced) return false;
@@ -48,11 +49,12 @@ export function FilterBar({ filter, setFilter, counts }) {
       <span class="text-[11px] uppercase tracking-wider text-zinc-600 mr-1">filter</span>
       <div class="flex gap-1 p-0.5 bg-zinc-900 border border-zinc-800 rounded">
         ${seg("all", "All", "all")} ${seg("undecided", "Undecided", "undecided")}
-        ${seg("yes", "Yes", "yes")} ${seg("no", "No", "no")}
+        ${seg("original", "Original", "original")} ${seg("enhanced", "Enhanced", "enhanced")}
+        ${seg("discard", "Discard", "discard")}
       </div>
       ${toggle("fav", "★ Fav", "fav")}
       ${toggle("faces", "Faces", "faces")}
-      ${toggle("enhanced", "Enhanced", "enhanced")}
+      ${toggle("enhanced", "Has enhanced")}
       ${toggle("flagged", "Exposure flag", "flagged")}
       ${isFilterActive(filter) && html`
         <button onClick=${() => setFilter({ ...EMPTY_FILTER })}

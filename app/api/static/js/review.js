@@ -468,12 +468,18 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
 }
 
 function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setView,
-                   onMarkAllNo, onSubmitAndContinue, busy }) {
+                   onBulk, onSubmitAndContinue, busy }) {
   const truncated = shown != null && shown < count;
   const filtered = total != null && total !== count;
   const tabBtn = (id, label) => html`
     <button onClick=${() => setView(id)}
       class="px-3 py-1 rounded text-sm ${view === id ? "bg-zinc-700 text-zinc-100" : "bg-zinc-900 text-zinc-400"}">
+      ${label}
+    </button>`;
+  const bulkDisabled = busy || count === 0;
+  const bulkBtn = (body, label, cls) => html`
+    <button onClick=${() => onBulk(body)} disabled=${bulkDisabled}
+      class="px-2 py-1.5 rounded text-xs ${cls} disabled:bg-zinc-800 disabled:text-zinc-500">
       ${label}
     </button>`;
   return html`
@@ -496,16 +502,45 @@ function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setVi
             <option value="score">score (technical)</option>
             <option value="captured">captured</option>
           </select>`}
-        <button onClick=${onMarkAllNo} disabled=${busy || count === 0}
-                class="px-3 py-1.5 rounded bg-rose-800 hover:bg-rose-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
-          don't keep any RAW
-        </button>
+        <div class="flex gap-1">
+          ${bulkBtn({ export_choice: "enhanced" }, "use enhanced for all", "bg-emerald-800 hover:bg-emerald-700")}
+          ${bulkBtn({ export_choice: "original" }, "use original for all", "bg-sky-800 hover:bg-sky-700")}
+          ${bulkBtn({ export_choice: "discard" }, "discard all", "bg-rose-900 hover:bg-rose-800")}
+        </div>
+        <div class="flex gap-1">
+          ${bulkBtn({ keep_raw: true }, "keep all RAWs", "bg-zinc-700 hover:bg-zinc-600 text-zinc-100")}
+          ${bulkBtn({ keep_raw: false }, "keep no RAW", "bg-zinc-700 hover:bg-zinc-600 text-zinc-100")}
+        </div>
         <button onClick=${onSubmitAndContinue} disabled=${busy || pendingCount === 0}
                 class="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
-          ${busy ? "working…" : `✔ Submit & continue (${pendingCount})`}
+          ${busy ? "working…" : `✔ Export selected (${pendingCount})`}
         </button>
       </div>
     </div>`;
+}
+
+// Batch-wide bulk actions each touch every photo, so they confirm first. The
+// wording tracks the consequence: export-choice (incl. discard) only stages a
+// choice and is non-destructive; keep-RAW off means the source RAW is deleted
+// at Export, once its JPEG exists.
+function bulkConfirmText(body) {
+  if ("export_choice" in body) {
+    const c = body.export_choice;
+    if (c === "discard") {
+      return "Discard EVERY photo? No JPEG is exported for discarded photos. " +
+        "This is non-destructive — you can change any photo before Export.";
+    }
+    return `Set EVERY photo to export its ${c} version? ` +
+      "You can still change individual photos before Export.";
+  }
+  if ("keep_raw" in body) {
+    return body.keep_raw
+      ? "Keep the source RAW for EVERY photo? Kept RAWs are archived to " +
+        "library/ at Export. You can change any photo before Export."
+      : "Set keep-RAW OFF for EVERY photo? At Export, each source RAW is " +
+        "deleted after its JPEG is written. You can still change any photo before Export.";
+  }
+  return "Apply this to EVERY photo?";
 }
 
 export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
@@ -678,35 +713,31 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     const n = pending?.length ?? 0;
     const all = queueItems ?? [];
     const undecided = all.filter((p) => {
-      const s = p.decision?.selected;
-      return !s || s === "undecided";
+      const c = p.decision?.export_choice;
+      return !c || c === "undecided";
     }).length;
     const undecidedNote = undecided > 0
       ? `\n\n${undecided} photo(s) are still undecided — they will be left ` +
-        "untouched (not moved, not enhanced)."
+        "untouched (not exported)."
       : "";
     if (!confirm(
-      `Submit ${n} decision(s) and continue?\n\n` +
-      `This runs: Submit (moves files on disk) → Enhance → Export JPEG.\n` +
-      `Photos marked "no" get their source RAW deleted after enhancement.` +
+      `Export ${n} photo(s)? Runs Export: writes JPEGs and applies your ` +
+      `keep-RAW choices (RAWs with keep-RAW off are deleted after their JPEG ` +
+      `is written).` +
       undecidedNote
     )) return;
     onSubmitAndContinue();
   }, [pending, queueItems, onSubmitAndContinue]);
 
-  const onMarkAllNo = useCallback(async () => {
-    if (!confirm(
-      `Mark EVERY photo in the batch as NO? Originals will NOT be kept in ` +
-      `library — every RAW is enhanced, then the source RAW is deleted after ` +
-      `processing. You can still review before Submit.`
-    )) return;
+  const onBulk = useCallback(async (body) => {
+    if (!confirm(bulkConfirmText(body))) return;
     setBusy(true);
     try {
-      const res = await api.decideAll("no");
-      setStatus(`Marked ${res.staged} photo(s) as no.`);
+      const res = await api.decideAll(body);
+      setStatus(`Staged ${res.staged} photo(s).`);
       refreshAll();
     } catch (e) {
-      setStatus(`Mark all failed: ${e.message}`);
+      setStatus(`Bulk action failed: ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -736,7 +767,7 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
                   shown=${(view === "all" && items) ? Math.min(visibleCount, items.length) : null}
                   pendingCount=${pending?.length ?? 0}
                   sort=${sort} setSort=${setSort} view=${view} setView=${setView}
-                  onMarkAllNo=${onMarkAllNo}
+                  onBulk=${onBulk}
                   onSubmitAndContinue=${submitAndContinue}
                   busy=${busy || pipelineBusy} />
       <${FilterBar} filter=${filter} setFilter=${setFilter} counts=${filterCounts} />

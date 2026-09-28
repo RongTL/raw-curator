@@ -17,15 +17,9 @@ const LOG_KEEP_LINES = 2000;
 // stage view; starting one of these needs the explicit Run button AND this
 // spelled-out confirmation, so a stray click can't delete a RAW.
 const DESTRUCTIVE_STAGES = {
-  submit:
-    'Submit moves files on disk. Photos marked "no" have their source RAW ' +
-    "deleted after enhancement. This cannot be undone.",
-  enhance:
-    'Enhance develops every decided RAW; for "no" photos it deletes the source ' +
-    "RAW once the TIFF is written. This cannot be undone.",
-  "export-jpeg":
-    "Export JPEG develops every kept RAW and enhanced TIFF into share JPEGs " +
-    "(writes many files).",
+  export:
+    "Export writes share JPEGs and applies keep-RAW: photos with keep-RAW off " +
+    "have their source RAW deleted after the JPEG is written. This cannot be undone.",
 };
 
 function ResetModal({ onClose, onDone }) {
@@ -153,7 +147,7 @@ function App() {
 
   const autoLabel = status?.autorun_leg != null
     ? `auto-run leg ${status.autorun_leg}…`
-    : "▶ Auto-run (ingest → cluster)";
+    : "▶ Auto-run (ingest → enhance)";
 
   return html`
     <div class="h-full flex flex-col">
