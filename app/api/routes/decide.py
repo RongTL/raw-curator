@@ -83,9 +83,7 @@ def list_pending() -> list[dict[str, Any]]:
     with session_scope() as sess:
         rows = (
             sess.execute(
-                select(Decision).where(
-                    Decision.applied == 0, Decision.selected.in_(("yes", "no"))
-                )
+                select(Decision).where(Decision.applied == 0, Decision.selected.in_(("yes", "no")))
             )
             .scalars()
             .all()

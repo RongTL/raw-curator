@@ -1,7 +1,8 @@
-// StagePanel — progress + live log for the running (or last-run) stage.
+// StagePanel — progress + live log for the selected (or running/last-run)
+// stage, plus the Run button that actually starts it.
 import { html, useEffect, useRef, useState } from "./ui.js";
 
-export function StagePanel({ status, log }) {
+export function StagePanel({ status, log, selectedStage, onRunStage, busy }) {
   const [follow, setFollow] = useState(true);
   const boxRef = useRef(null);
   const lines = log?.lines ?? [];
@@ -9,16 +10,36 @@ export function StagePanel({ status, log }) {
     if (follow && boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
   }, [lines, follow]);
 
-  const stageName = log?.stage ?? status?.running;
-  const stage = status?.stages?.find((s) => s.name === stageName);
+  const stages = status?.stages ?? [];
+  // Which stage to show: the one the user selected, else the running one, else
+  // the most recently started. The last-started fallback is why a reload lands
+  // on the stage that actually ran instead of "no stage has run yet" while the
+  // timeline shows several as done.
+  const lastStarted = [...stages]
+    .filter((s) => s.started_at)
+    .sort((a, b) => new Date(a.started_at) - new Date(b.started_at))
+    .pop();
+  const stageName = selectedStage ?? log?.stage ?? status?.running ?? lastStarted?.name;
+  const stage = stages.find((s) => s.name === stageName);
   if (!stage) {
     return html`<div class="p-10 text-zinc-500 text-sm">
-      No stage has run yet. Click a stage above, or press Auto-run to go
-      ingest → filter → score → cluster and stop for your review.
+      No stage has run yet. Click a stage above to view it, then press Run — or
+      press Auto-run to go ingest → filter → score → cluster and stop for your review.
     </div>`;
   }
+
+  const isRunning = status?.running === stage.name;
+  // The live log is for one run at a time; only show it against the stage it belongs to.
+  const stageLines = log?.stage === stage.name ? lines : [];
   const p = stage.progress ?? {};
   const pctv = p.total ? Math.min(100, Math.round((p.current / p.total) * 100)) : null;
+  const runLabel = isRunning
+    ? "running…"
+    : stage.state === "done"
+      ? "▶ Re-run"
+      : stage.state === "failed" || stage.state === "cancelled"
+        ? "▶ Run again"
+        : "▶ Run";
   return html`
     <div class="flex flex-col h-full p-3 gap-2">
       <div class="flex items-baseline gap-3">
@@ -27,6 +48,13 @@ export function StagePanel({ status, log }) {
           ${stage.state}${stage.exit_code != null && stage.state !== "done" ? ` (exit ${stage.exit_code})` : ""}
         </span>
         ${p.total ? html`<span class="text-sm text-zinc-400">${p.current} / ${p.total}</span>` : null}
+        <button
+          class="ml-auto px-3 py-1 rounded text-sm bg-emerald-700 hover:bg-emerald-600
+                 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed"
+          disabled=${busy || isRunning} onClick=${() => onRunStage?.(stage.name)}
+          title=${isRunning ? "already running" : `run the ${stage.title} stage`}>
+          ${runLabel}
+        </button>
       </div>
       ${pctv != null && html`
         <div class="h-2 bg-zinc-800 rounded">
@@ -45,7 +73,11 @@ export function StagePanel({ status, log }) {
       </div>
       <div ref=${boxRef}
            class="flex-1 overflow-auto bg-black/60 rounded p-2 font-mono text-[11px] leading-4 text-zinc-300">
-        ${lines.map((l, i) => html`<div key=${i}>${l}</div>`)}
+        ${stageLines.length === 0
+          ? html`<div class="text-zinc-600">${isRunning
+              ? "waiting for log output…"
+              : "No live log for this stage — it isn't running. Press Run to start it."}</div>`
+          : stageLines.map((l, i) => html`<div key=${i}>${l}</div>`)}
       </div>
     </div>`;
 }
