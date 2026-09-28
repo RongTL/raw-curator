@@ -52,39 +52,19 @@ def cluster() -> None:
 
 
 @app.command()
-def submit() -> None:
-    """Apply staged decisions (moves yes-RAWs into library/)."""
-    from app.decision.decide_job import apply_decisions
-
-    apply_decisions()
-
-
-@app.command()
 def enhance() -> None:
-    """RAW -> AI chain -> 16-bit TIFF for every decided photo."""
+    """RAW -> AI chain -> before/after render JPEGs for every RAW photo."""
     from app.enhancement.enhance_job import run_enhancement
 
     run_enhancement()
 
 
-@app.command("export-jpeg")
-def export_jpeg(
-    source: str = typer.Option(
-        "all", help="Which folders to export from: library | exported | all."
-    ),
-    quality: int = typer.Option(
-        None, help="JPEG quality (0-100). Default from RAWCURATOR_JPEG_QUALITY."
-    ),
-    long_edge: int = typer.Option(
-        None,
-        help="Resize so the long edge equals this many pixels. 0 = native resolution.",
-    ),
-    overwrite: bool = typer.Option(False, help="Re-encode files whose JPEG already exists."),
-) -> None:
-    """Optional: convert library RAWs and exported TIFFs to share-ready JPEGs."""
-    from app.export.jpeg_job import run_jpeg_export
+@app.command()
+def export() -> None:
+    """Apply export decisions: chosen JPEG into photos/jpeg/, then RAW retention."""
+    from app.export.export_job import run_export
 
-    run_jpeg_export(source=source, quality=quality, long_edge=long_edge, overwrite=overwrite)
+    run_export()
 
 
 @app.command()

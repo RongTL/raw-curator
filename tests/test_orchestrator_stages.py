@@ -22,3 +22,15 @@ def test_export_cli_args() -> None:
 
 def test_no_duplicate_stage_names() -> None:
     assert len(STAGE_BY_NAME) == len(STAGES)
+
+
+def test_every_stage_cli_arg_is_a_real_command() -> None:
+    from typer.testing import CliRunner
+
+    from app.cli import app
+    from app.orchestrator.stages import STAGES
+
+    runner = CliRunner()
+    for stage in STAGES:
+        result = runner.invoke(app, [stage.cli_args[0], "--help"])
+        assert result.exit_code == 0, f"{stage.cli_args[0]}: {result.output}"
