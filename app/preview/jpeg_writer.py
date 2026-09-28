@@ -6,7 +6,7 @@ import io
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.arrays import Array
 
@@ -48,4 +48,13 @@ def write_jpeg(
 
 
 def decode_jpeg_bytes(jpeg_bytes: bytes) -> Array:
-    return np.asarray(Image.open(io.BytesIO(jpeg_bytes)).convert("RGB"))
+    """Decode JPEG bytes to HxWx3 uint8 RGB, applying EXIF orientation.
+
+    The embedded thumbnail LibRaw hands back for a portrait RAW is stored in the
+    sensor's landscape frame with an Orientation tag; without honouring it the
+    grid thumb renders sideways while the developed preview (already upright) is
+    correct. ``exif_transpose`` rotates the pixels and drops the tag.
+    """
+    with Image.open(io.BytesIO(jpeg_bytes)) as opened:
+        img = ImageOps.exif_transpose(opened) or opened
+        return np.asarray(img.convert("RGB"))

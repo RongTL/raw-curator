@@ -10,9 +10,17 @@ import { CompareModal } from "./compare.js";
 
 const PAGE_SIZE = 200;
 
-function Stars({ value }) {
-  const n = value || 0;
-  return html`<span class="text-amber-400 tracking-tight">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>`;
+// Human explanation for each exposure flag the filter stage can set (see
+// app/filters/exposure.py), shown as a tooltip so the badge isn't a mystery.
+const EXPOSURE_HELP = {
+  overexposed: "Overexposed — >5% of pixels are blown out (near pure white); highlight detail is lost.",
+  underexposed: "Underexposed — >5% of pixels are crushed (near pure black); shadow detail is lost.",
+  high_contrast_clipped: "High contrast — both highlights and shadows are clipping at once.",
+  very_dark: "Very dark — the overall brightness is very low (mean luma < 32/255).",
+  very_bright: "Very bright — the overall brightness is very high (mean luma > 224/255).",
+};
+function exposureHelp(flag) {
+  return EXPOSURE_HELP[flag] ?? `Exposure flag: ${(flag ?? "").replace(/_/g, " ")}`;
 }
 
 function DecisionBadge({ decision }) {
@@ -22,26 +30,48 @@ function DecisionBadge({ decision }) {
   return html`<span class="${color} text-xs px-1.5 py-0.5 rounded">${s}</span>`;
 }
 
-function PhotoTile({ photo, onClick, highlight = false }) {
+// A rateable grid tile. It's a div (not a button) so the star buttons can nest
+// legally; Enter/Space still open it, and the stars stopPropagation so a rating
+// click never opens the modal.
+function PhotoTile({ photo, onOpen, onStar, highlight = false }) {
   const score = photo.technical_score == null ? "—" : photo.technical_score.toFixed(2);
   const aest = photo.aesthetic_score == null ? "—" : photo.aesthetic_score.toFixed(1);
   const ring = highlight ? "ring-2 ring-amber-400" : "";
+  const stars = photo.decision?.stars || 0;
+  const open = () => onOpen(photo.hash);
+  const flag = photo.exposure_flag && photo.exposure_flag !== "ok" ? photo.exposure_flag : null;
   return html`
-    <button
-      class="photo-tile relative group bg-zinc-900 rounded overflow-hidden text-left ${ring}"
-      onClick=${onClick}>
-      <img src=${photo.thumb_url} alt=${photo.hash}
+    <div
+      class="photo-tile relative group bg-zinc-900 rounded overflow-hidden text-left cursor-pointer ${ring}"
+      role="button" tabindex="0" aria-label=${`open ${photo.filename ?? photo.hash}`}
+      onClick=${open}
+      onKeyDown=${(e) => {
+        // Only the tile itself opens on Enter/Space; a keypress on a nested
+        // star button activates the button, not the modal.
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          open();
+        }
+      }}>
+      <img src=${photo.thumb_url} alt=${photo.filename ?? photo.hash}
            class="block w-full aspect-[3/2] object-cover" />
       <div class="absolute top-1 left-1 flex gap-1">
-        ${photo.is_recommended && html`<span class="bg-amber-500/90 text-black text-xs px-1.5 py-0.5 rounded font-semibold">REC</span>`}
+        ${photo.is_recommended && html`<span title="recommended keeper for this cluster"
+          class="bg-amber-500/90 text-black text-xs px-1.5 py-0.5 rounded font-semibold">REC</span>`}
         ${photo.decision?.applied && html`<span class="bg-blue-700 text-xs px-1.5 py-0.5 rounded">applied</span>`}
         <${DecisionBadge} decision=${photo.decision} />
         ${photo.enhanced && html`<span class="bg-emerald-600/90 text-black text-[10px] px-1 py-0.5 rounded font-semibold"
           title=${`enhanced${photo.q_after != null ? ` · Q ${Math.round(photo.q_after)}` : ""}`}>✓</span>`}
         ${photo.degraded && html`<span class="bg-amber-600/90 text-black text-[10px] px-1 py-0.5 rounded font-semibold" title="verify: degraded">!</span>`}
+        ${flag && html`<span class="bg-amber-800/90 text-amber-100 text-[10px] px-1 py-0.5 rounded font-semibold"
+          title=${exposureHelp(flag)}>${flag.replace(/_/g, " ")}</span>`}
       </div>
-      <div class="absolute top-1 right-1">
-        <${Stars} value=${photo.decision?.stars} />
+      <div class="absolute top-1 right-1 flex bg-black/60 rounded px-0.5"
+           onClick=${(e) => e.stopPropagation()}>
+        ${[1, 2, 3, 4, 5].map((n) => html`
+          <button key=${n} type="button" title=${`${n} star${n === 1 ? "" : "s"}`}
+            class="px-0.5 text-sm leading-none ${n <= stars ? "text-amber-400" : "text-zinc-500 hover:text-amber-300"}"
+            onClick=${(e) => { e.stopPropagation(); onStar(photo.hash, n === stars ? 0 : n); }}>★</button>`)}
       </div>
       ${photo.file_kind && html`
         <div class="absolute bottom-7 left-1">
@@ -55,13 +85,13 @@ function PhotoTile({ photo, onClick, highlight = false }) {
         </span>
         <span class="shrink-0">tech ${score} • aes ${aest}</span>
       </div>
-    </button>`;
+    </div>`;
 }
 
-function PhotoGrid({ items, onSelect }) {
+function PhotoGrid({ items, onOpen, onStar }) {
   return html`
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 p-2">
-      ${items.map(p => html`<${PhotoTile} key=${p.hash} photo=${p} onClick=${() => onSelect(p.hash)} />`)}
+      ${items.map(p => html`<${PhotoTile} key=${p.hash} photo=${p} onOpen=${onOpen} onStar=${onStar} />`)}
     </div>`;
 }
 
@@ -69,7 +99,7 @@ function PhotoGrid({ items, onSelect }) {
 // via onMore whenever a bottom sentinel scrolls into view. Re-observing on
 // every `visible`/length change lets it keep filling until the sentinel is
 // pushed off-screen (handles short pages that don't cover the viewport).
-function PagedGrid({ items, visible, onMore, onSelect }) {
+function PagedGrid({ items, visible, onMore, onOpen, onStar }) {
   const sentinel = useRef(null);
   useEffect(() => {
     const el = sentinel.current;
@@ -86,7 +116,7 @@ function PagedGrid({ items, visible, onMore, onSelect }) {
   const hasMore = visible < items.length;
   return html`
     <${Fragment}>
-      <${PhotoGrid} items=${shown} onSelect=${onSelect} />
+      <${PhotoGrid} items=${shown} onOpen=${onOpen} onStar=${onStar} />
       ${hasMore && html`
         <div ref=${sentinel} class="py-6 text-center text-xs text-zinc-500">
           loading more… ${shown.length} of ${items.length}
@@ -94,7 +124,7 @@ function PagedGrid({ items, visible, onMore, onSelect }) {
     </${Fragment}>`;
 }
 
-function ClusterSection({ cluster, onSelect, onClusterAction, onCompare, busy }) {
+function ClusterSection({ cluster, onOpen, onStar, onClusterAction, onCompare, busy }) {
   const isUnclustered = cluster.kind === "unclustered";
   const headerColor = isUnclustered ? "text-zinc-500" : "text-zinc-200";
   const kindBadge = isUnclustered ? null : html`
@@ -129,18 +159,18 @@ function ClusterSection({ cluster, onSelect, onClusterAction, onCompare, busy })
             key=${p.hash}
             photo=${p}
             highlight=${!isUnclustered && p.is_recommended}
-            onClick=${() => onSelect(p.hash)} />`)}
+            onOpen=${onOpen} onStar=${onStar} />`)}
       </div>
     </section>`;
 }
 
-function ClusterView({ clusters, onSelect, onClusterAction, onCompare, busy }) {
+function ClusterView({ clusters, onOpen, onStar, onClusterAction, onCompare, busy }) {
   if (!clusters || clusters.length === 0) {
     return html`<div class="p-8 text-zinc-500">No clusters yet. Run the Cluster stage above.</div>`;
   }
   return html`
     <div>
-      ${clusters.map(c => html`<${ClusterSection} key=${c.id} cluster=${c} onSelect=${onSelect}
+      ${clusters.map(c => html`<${ClusterSection} key=${c.id} cluster=${c} onOpen=${onOpen} onStar=${onStar}
         onClusterAction=${onClusterAction} onCompare=${onCompare} busy=${busy} />`)}
     </div>`;
 }
@@ -214,8 +244,10 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
   const wrapRef = useRef(null);
   const [box, setBox] = useState(null); // rendered image rect within wrapRef, for face overlays
 
-  // Reset per-photo view state when navigating to a different frame.
-  useEffect(() => { setShowAfter(false); setAfterError(false); setShowFaces(false); }, [hash]);
+  // Reset the before/after toggle per photo (a new frame may have no enhanced
+  // version). The faces toggle is intentionally sticky across navigation, so
+  // reviewing faces across a burst doesn't need re-enabling on every frame.
+  useEffect(() => { setShowAfter(false); setAfterError(false); }, [hash]);
   useEffect(() => { setNoteText(data?.decision?.note ?? ""); }, [hash, data?.decision?.note]);
 
   // Measure where the contained image actually renders so face boxes line up.
@@ -239,6 +271,15 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     onMutated?.();
   }, [hash, refetch, onMutated]);
 
+  // The culling flow: a yes/no decision saves, then jumps to the next photo.
+  // We advance immediately after the save lands and refresh the grid in the
+  // background — no extra keypress per photo.
+  const decideAndAdvance = useCallback(async (selected) => {
+    await api.decide({ photo_hash: hash, selected });
+    onMutated?.();
+    onNext?.();
+  }, [hash, onMutated, onNext]);
+
   useKeyboardShortcuts(useMemo(() => ({
     Escape: onClose,
     ArrowLeft: onPrev,
@@ -252,11 +293,11 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     "4": () => mutate({ stars: 4 }),
     "5": () => mutate({ stars: 5 }),
     "0": () => mutate({ stars: 0 }),
-    "y": () => mutate({ selected: "yes" }),
-    "n": () => mutate({ selected: "no" }),
+    "y": () => decideAndAdvance("yes"),
+    "n": () => decideAndAdvance("no"),
     "u": () => mutate({ selected: "undecided" }),
     "f": () => mutate({ favorite: !data?.decision?.favorite }),
-  }), [mutate, data, onClose, onPrev, onNext, onNextUndecided]));
+  }), [mutate, decideAndAdvance, data, onClose, onPrev, onNext, onNextUndecided]));
 
   if (!data) return html`
     <div class="fixed inset-0 bg-black/80 flex items-center justify-center">
@@ -313,7 +354,7 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
       </div>
 
       <div ref=${wrapRef} class="flex-1 relative flex items-center justify-center overflow-hidden p-4 min-h-0">
-        <img ref=${imgRef} src=${imgSrc} alt=${data.hash}
+        <img ref=${imgRef} src=${imgSrc} alt=${data.filename ?? data.hash}
              class="max-h-[calc(100vh-18rem)] max-w-full min-w-0 object-contain"
              onLoad=${(e) => {
                if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight });
@@ -333,7 +374,7 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           </div>`)}
         ${showAfter && afterError && html`
           <div class="absolute inset-x-0 bottom-0 bg-amber-950/80 text-amber-200 text-xs text-center py-1">
-            No enhanced output yet — run Submit &amp; continue (or Export JPEG).
+            No enhanced output yet — run Submit & continue (or Export JPEG).
           </div>`}
       </div>
 
@@ -345,8 +386,11 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           <div class="text-zinc-500">musiq ${data.musiq_score?.toFixed(1) ?? "—"} • maniqa ${data.maniqa_score?.toFixed(2) ?? "—"}</div>
           <div class="text-zinc-500">blur var ${data.blur_var?.toFixed(0) ?? "—"} • ${faces.length} face(s)</div>
           ${data.exposure_flag && data.exposure_flag !== "ok" && html`
-            <div class="mt-1"><span class="bg-amber-800 text-amber-100 text-[10px] px-1.5 py-0.5 rounded">
-              ${data.exposure_flag.replace(/_/g, " ")}</span></div>`}
+            <div class="mt-1">
+              <span class="bg-amber-800 text-amber-100 text-[10px] px-1.5 py-0.5 rounded"
+                    title=${exposureHelp(data.exposure_flag)}>${data.exposure_flag.replace(/_/g, " ")}</span>
+              <span class="ml-1 text-[11px] text-zinc-500">${exposureHelp(data.exposure_flag)}</span>
+            </div>`}
         </div>
 
         ${data.quality_report ? html`<${EngineQualityPanel} qr=${data.quality_report} />` : html`
@@ -367,9 +411,9 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           </div>
           <div class="flex gap-1.5 mb-2">
             <button class="px-2 py-1 rounded ${d?.selected === "yes" ? "bg-emerald-700" : "bg-zinc-800"}"
-                    onClick=${() => mutate({ selected: "yes" })}>yes <span class="kbd">y</span></button>
+                    onClick=${() => decideAndAdvance("yes")}>yes <span class="kbd">y</span></button>
             <button class="px-2 py-1 rounded ${d?.selected === "no" ? "bg-rose-800" : "bg-zinc-800"}"
-                    onClick=${() => mutate({ selected: "no" })}>no <span class="kbd">n</span></button>
+                    onClick=${() => decideAndAdvance("no")}>no <span class="kbd">n</span></button>
             <button class="px-2 py-1 rounded ${(!d || d.selected === "undecided") ? "bg-zinc-600" : "bg-zinc-800"}"
                     onClick=${() => mutate({ selected: "undecided" })}>undecided</button>
           </div>
@@ -442,19 +486,32 @@ function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setVi
 
 export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
   const [sort, setSort] = useState("score");
-  const [view, setView] = useState("all");
+  const [view, setView] = useState(() => {
+    const m = /view=(all|clusters)/.exec(location.hash);
+    return m ? m[1] : "all";
+  });
   const [filter, setFilter] = useState({ ...EMPTY_FILTER });
   const { data: queueItems, refetch: refetchQueue } = useQuery(() => api.queue(sort), [sort]);
   const { data: clusters, refetch: refetchClusters } = useQuery(() => api.clusters(), []);
   const { data: pending, refetch: refetchPending } = useQuery(() => api.pending(), []);
   const [openHash, setOpenHash] = useState(null);
+  const [viewerHashes, setViewerHashes] = useState(null); // navigation order, snapshotted at open
   const [compareId, setCompareId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const triggerRef = useRef(null); // tile to refocus when the viewer closes
 
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [view, sort, filter]);
   const loadMore = useCallback(() => setVisibleCount((c) => c + PAGE_SIZE), []);
+
+  // Keep the current sub-view in the URL so a reload doesn't drop you back on
+  // the Ingest log (the pipeline panel remembers itself in app.js).
+  useEffect(() => {
+    const params = new URLSearchParams(location.hash.slice(1));
+    params.set("view", view);
+    history.replaceState(null, "", `#${params.toString()}`);
+  }, [view]);
 
   const filteredClusters = useMemo(() => {
     if (!clusters) return null;
@@ -473,6 +530,31 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     return queueItems ? queueItems.filter((p) => matchesFilter(p, filter)) : null;
   }, [view, queueItems, filteredClusters, filter]);
 
+  // hash -> live photo, over the unfiltered universe, so viewer navigation can
+  // resolve a snapshotted hash even after a decision drops it from the filter.
+  const byHash = useMemo(() => {
+    const m = new Map();
+    for (const p of rawItems ?? []) m.set(p.hash, p);
+    return m;
+  }, [rawItems]);
+
+  // Counts for the filter chips, over the current view's universe.
+  const filterCounts = useMemo(() => {
+    const all = rawItems ?? [];
+    const c = { all: all.length, undecided: 0, yes: 0, no: 0, fav: 0, faces: 0, enhanced: 0, flagged: 0 };
+    for (const p of all) {
+      const s = p.decision?.selected;
+      if (!s || s === "undecided") c.undecided++;
+      else if (s === "yes") c.yes++;
+      else if (s === "no") c.no++;
+      if (p.decision?.favorite) c.fav++;
+      if (p.n_faces > 0) c.faces++;
+      if (p.enhanced) c.enhanced++;
+      if (p.exposure_flag && p.exposure_flag !== "ok") c.flagged++;
+    }
+    return c;
+  }, [rawItems]);
+
   const compareCluster = useMemo(
     () => (compareId != null && clusters ? clusters.find((c) => c.id === compareId) ?? null : null),
     [compareId, clusters]
@@ -482,32 +564,58 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     refetchQueue(); refetchClusters(); refetchPending();
   }, [refetchQueue, refetchClusters, refetchPending]);
 
+  const onStar = useCallback(async (hash, stars) => {
+    await api.decide({ photo_hash: hash, stars });
+    refreshAll();
+  }, [refreshAll]);
+
+  // Opening a photo snapshots the currently-visible order. Navigation then walks
+  // that snapshot, so deciding a photo (which may drop it from the active filter)
+  // never shifts the list out from under ← / →. The snapshot clears on close.
+  const openPhoto = useCallback((hash) => {
+    triggerRef.current = document.activeElement;
+    setViewerHashes((items ?? []).map((p) => p.hash));
+    setOpenHash(hash);
+  }, [items]);
+
+  const closeViewer = useCallback(() => {
+    setOpenHash(null);
+    setViewerHashes(null);
+    const el = triggerRef.current;
+    if (el && typeof el.focus === "function") setTimeout(() => el.focus(), 0);
+  }, []);
+
   const openIndex = useMemo(
-    () => items?.findIndex((p) => p.hash === openHash) ?? -1,
-    [items, openHash]
+    () => (viewerHashes ? viewerHashes.indexOf(openHash) : -1),
+    [viewerHashes, openHash]
   );
   const next = useCallback(() => {
-    if (!items || items.length === 0) return;
-    const i = openIndex < 0 ? 0 : (openIndex + 1) % items.length;
-    setOpenHash(items[i].hash);
-  }, [items, openIndex]);
+    if (!viewerHashes || viewerHashes.length === 0) return;
+    const i = openIndex < 0 ? 0 : (openIndex + 1) % viewerHashes.length;
+    setOpenHash(viewerHashes[i]);
+  }, [viewerHashes, openIndex]);
   const prev = useCallback(() => {
-    if (!items || items.length === 0) return;
-    const i = openIndex <= 0 ? items.length - 1 : openIndex - 1;
-    setOpenHash(items[i].hash);
-  }, [items, openIndex]);
+    if (!viewerHashes || viewerHashes.length === 0) return;
+    const i = openIndex <= 0 ? viewerHashes.length - 1 : openIndex - 1;
+    setOpenHash(viewerHashes[i]);
+  }, [viewerHashes, openIndex]);
   const nextUndecided = useCallback(() => {
-    if (!items || items.length === 0) return;
+    if (!viewerHashes || viewerHashes.length === 0) return;
     const start = openIndex < 0 ? -1 : openIndex;
-    for (let k = 1; k <= items.length; k++) {
-      const p = items[(start + k) % items.length];
-      const sel = p.decision?.selected;
-      if (!sel || sel === "undecided") { setOpenHash(p.hash); return; }
+    for (let k = 1; k <= viewerHashes.length; k++) {
+      const h = viewerHashes[(start + k) % viewerHashes.length];
+      const sel = byHash.get(h)?.decision?.selected;
+      if (!sel || sel === "undecided") { setOpenHash(h); return; }
     }
     setStatus("No undecided photos left in the current view.");
-  }, [items, openIndex]);
+  }, [viewerHashes, openIndex, byHash]);
 
   const onClusterAction = useCallback(async (clusterId, mode) => {
+    if (mode === "reject_all" && !confirm(
+      `Reject every photo in cluster #${clusterId}?\n\n` +
+      `Each is staged "no": the RAW is enhanced, then the source RAW is deleted ` +
+      `after Submit. You can still change this before Submit.`
+    )) return;
     setBusy(true);
     try {
       const res = await api.decideCluster(clusterId, mode);
@@ -544,13 +652,23 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
 
   const submitAndContinue = useCallback(() => {
     const n = pending?.length ?? 0;
+    const all = queueItems ?? [];
+    const undecided = all.filter((p) => {
+      const s = p.decision?.selected;
+      return !s || s === "undecided";
+    }).length;
+    const undecidedNote = undecided > 0
+      ? `\n\n${undecided} photo(s) are still undecided — they will be left ` +
+        "untouched (not moved, not enhanced)."
+      : "";
     if (!confirm(
       `Submit ${n} decision(s) and continue?\n\n` +
       `This runs: Submit (moves files on disk) → Enhance → Export JPEG.\n` +
-      `Photos marked "no" get their source RAW deleted after enhancement.`
+      `Photos marked "no" get their source RAW deleted after enhancement.` +
+      undecidedNote
     )) return;
     onSubmitAndContinue();
-  }, [pending, onSubmitAndContinue]);
+  }, [pending, queueItems, onSubmitAndContinue]);
 
   const onMarkAllNo = useCallback(async () => {
     if (!confirm(
@@ -578,14 +696,14 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     if (view === "clusters") {
       if (!filteredClusters) return html`<div class="p-8 text-zinc-500">loading…</div>`;
       if (filteredClusters.length === 0) return html`<div class="p-8 text-zinc-500">${emptyMsg}</div>`;
-      return html`<${ClusterView} clusters=${filteredClusters} onSelect=${setOpenHash}
+      return html`<${ClusterView} clusters=${filteredClusters} onOpen=${openPhoto} onStar=${onStar}
                     onClusterAction=${onClusterAction} onCompare=${(c) => setCompareId(c.id)}
                     busy=${busy || pipelineBusy} />`;
     }
     if (!items) return html`<div class="p-8 text-zinc-500">loading…</div>`;
     if (items.length === 0) return html`<div class="p-8 text-zinc-500">${emptyMsg}</div>`;
     return html`<${PagedGrid} items=${items} visible=${visibleCount}
-                               onMore=${loadMore} onSelect=${setOpenHash} />`;
+                               onMore=${loadMore} onOpen=${openPhoto} onStar=${onStar} />`;
   })();
 
   return html`
@@ -597,11 +715,11 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
                   onMarkAllNo=${onMarkAllNo}
                   onSubmitAndContinue=${submitAndContinue}
                   busy=${busy || pipelineBusy} />
-      <${FilterBar} filter=${filter} setFilter=${setFilter} />
+      <${FilterBar} filter=${filter} setFilter=${setFilter} counts=${filterCounts} />
       ${status && html`<div class="px-4 py-1 text-xs bg-zinc-900 border-b border-zinc-800">${status}</div>`}
       ${body}
       ${openHash && html`<${DetailModal} hash=${openHash}
-                          onClose=${() => setOpenHash(null)}
+                          onClose=${closeViewer}
                           onPrev=${prev} onNext=${next} onNextUndecided=${nextUndecided}
                           onMutated=${refreshAll} />`}
       ${compareCluster && html`<${CompareModal} cluster=${compareCluster}

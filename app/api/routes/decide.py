@@ -74,8 +74,20 @@ def stage_cluster_decisions(d: ClusterDecisionIn) -> dict[str, Any]:
 
 @router.get("/pending")
 def list_pending() -> list[dict[str, Any]]:
+    """Decisions awaiting Submit: staged as ``yes``/``no`` and not yet applied.
+
+    A row set back to ``undecided`` (or never decided) is not pending — it has
+    nothing to submit — so the toolbar count and the Submit dialog match the
+    header's "decided" tally, which also ignores undecided.
+    """
     with session_scope() as sess:
-        rows = sess.execute(select(Decision).where(Decision.applied == 0)).scalars().all()
+        rows = (
+            sess.execute(
+                select(Decision).where(Decision.applied == 0, Decision.selected.in_(("yes", "no")))
+            )
+            .scalars()
+            .all()
+        )
         return [
             {
                 "photo_hash": d.photo_hash,

@@ -43,3 +43,21 @@ def test_write_jpeg_creates_parent_dirs(tmp_path: Path) -> None:
     dest = tmp_path / "nested" / "deeper" / "x.jpg"
     write_jpeg(arr, dest, quality=80)
     assert dest.exists()
+
+
+def test_decode_jpeg_bytes_applies_exif_orientation() -> None:
+    # An embedded camera thumb from a portrait shot is stored landscape with an
+    # Orientation tag (6 = rotate 90° CW for display). The decode must honour it,
+    # or portrait thumbnails render sideways in the grid.
+    import io
+
+    from app.preview.jpeg_writer import decode_jpeg_bytes
+
+    landscape = Image.fromarray(np.zeros((100, 200, 3), dtype=np.uint8))  # H=100, W=200
+    exif = landscape.getexif()
+    exif[274] = 6  # 274 = Orientation
+    buf = io.BytesIO()
+    landscape.save(buf, format="JPEG", exif=exif.tobytes())
+
+    out = decode_jpeg_bytes(buf.getvalue())
+    assert out.shape[:2] == (200, 100)  # displayed upright: portrait (H=200, W=100)

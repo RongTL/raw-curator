@@ -44,17 +44,19 @@ function Chip({ label, sub, state, active, onClick, disabled }) {
     </button>`;
 }
 
-export function TimelineBar({ status, panel, onRunStage, onShowStage, onShowReview }) {
+export function TimelineBar({ status, panel, selectedStage, onSelectStage, onShowReview }) {
   const stages = status?.stages ?? [];
-  const busy = Boolean(status?.running) || status?.autorun_leg != null;
   const batch = status?.batch ?? {};
   const chips = [];
   for (const s of stages) {
+    // A tile click only opens the stage view; starting a stage is the Run
+    // button inside the panel. So tiles stay clickable even while a job runs.
+    const active = panel === "pipeline"
+      && (selectedStage ? selectedStage === s.name : status?.running === s.name);
     chips.push(html`
       <${Chip} key=${s.name} label=${s.title} sub=${chipSub(s)} state=${s.state}
-        active=${panel === "pipeline" && (status?.running === s.name)}
-        disabled=${busy && s.state !== "running"}
-        onClick=${() => (s.state === "running" ? onShowStage(s.name) : onRunStage(s.name))} />`);
+        active=${active} disabled=${false}
+        onClick=${() => onSelectStage(s.name)} />`);
     if (s.name === "cluster") {
       chips.push(html`
         <${Chip} key="review" label="Review" state="review"
