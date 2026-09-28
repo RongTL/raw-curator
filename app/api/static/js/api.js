@@ -21,7 +21,7 @@ export const api = {
   clusters: () => j(`/api/cluster/`),
   photo: (hash) => j(`/api/photo/${hash}`),
   decide: (body) => post(`/api/decide/`, body),
-  decideAll: (selected) => post(`/api/decide/all`, { selected }),
+  decideAll: (body) => post(`/api/decide/all`, body),
   decideCluster: (clusterId, mode) => post(`/api/decide/cluster`, { cluster_id: clusterId, mode }),
   pending: () => j(`/api/decide/pending`),
   // pipeline
