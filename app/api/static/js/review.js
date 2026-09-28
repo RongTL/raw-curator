@@ -242,7 +242,13 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
   const [noteText, setNoteText] = useState("");
   const imgRef = useRef(null);
   const wrapRef = useRef(null);
+  const rootRef = useRef(null); // modal container; focused on open so keys don't leak to the grid
   const [box, setBox] = useState(null); // rendered image rect within wrapRef, for face overlays
+
+  // Move focus into the dialog once its content renders. Otherwise the tile that
+  // opened it keeps focus, and since React delegates events below window, a plain
+  // Enter would re-fire that tile's onKeyDown and jump back to the first photo.
+  useEffect(() => { rootRef.current?.focus(); }, [!!data]);
 
   // Reset the before/after toggle per photo (a new frame may have no enhanced
   // version). The faces toggle is intentionally sticky across navigation, so
@@ -321,7 +327,8 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
   ].filter(Boolean);
 
   return html`
-    <div class="fixed inset-0 z-50 bg-black flex flex-col" role="dialog" aria-modal="true">
+    <div ref=${rootRef} tabindex="-1"
+         class="fixed inset-0 z-50 bg-black flex flex-col outline-none" role="dialog" aria-modal="true">
       <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm">
         <div class="flex items-center gap-3 min-w-0">
           <button onClick=${onPrev} class="px-2 py-1 bg-zinc-800 rounded" title="prev (←)">←</button>
