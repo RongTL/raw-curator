@@ -12,7 +12,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
-from app.api.routes._urls import cache_url
+from app.api.routes._urls import cache_url, jpeg_url
 from app.enhancement.engine.plan import QualityReport
 from app.models import Decision, Face, Photo, PhotoQualityReport
 
@@ -32,20 +32,38 @@ def decision_payload(d: Decision | None) -> dict[str, Any] | None:
     }
 
 
-def photo_summary(p: Photo, d: Decision | None, *, rank: int | None = None) -> dict[str, Any]:
-    """The tile-level shape used by the queue grid and cluster sections."""
+def photo_summary(
+    p: Photo,
+    d: Decision | None,
+    *,
+    rank: int | None = None,
+    qr: PhotoQualityReport | None = None,
+    n_faces: int = 0,
+) -> dict[str, Any]:
+    """The tile-level shape used by the queue grid and cluster sections.
+
+    ``qr`` (when joined by the caller) exposes the post-enhance result so the grid
+    can badge/filter enhanced frames; ``n_faces`` drives the has-faces filter.
+    ``enhanced_url`` is derived and may 404 until export-jpeg has run.
+    """
     return {
         "hash": p.hash,
         "filename": Path(p.source_path).name if p.source_path else None,
         "file_kind": p.file_kind,
         "thumb_url": cache_url(p.thumb_path),
+        "enhanced_url": jpeg_url(p.source_path),
         "captured_at": p.captured_at.isoformat() if p.captured_at else None,
         "camera_body": p.camera_body,
         "blur_var": p.blur_var,
+        "exposure_flag": p.exposure_flag,
         "aesthetic_score": p.aesthetic_score,
         "technical_score": p.technical_score,
         "cluster_id": p.cluster_id,
         "is_recommended": bool(p.is_recommended),
+        "n_faces": n_faces,
+        "enhanced": qr is not None and qr.score_q_after is not None,
+        "q_after": qr.score_q_after if qr is not None else None,
+        "degraded": bool(qr.degraded) if qr is not None else False,
         "rank": rank,
         "decision": decision_payload(d),
     }

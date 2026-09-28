@@ -6,7 +6,7 @@ from datetime import datetime
 
 from app.api.serializers import decision_payload, photo_detail, photo_summary
 from app.config import settings
-from app.models import Decision, Face, Photo
+from app.models import Decision, Face, Photo, PhotoQualityReport
 
 
 def _photo(**overrides: object) -> Photo:
@@ -110,3 +110,24 @@ def test_quality_report_payload_exposes_recipe_and_verdict() -> None:
     assert out["plan"]["steps"][0]["name"] == "unsharp_mask"
     assert out["verify"] == {"degraded": False, "reasons": []}
     assert out["score_q_after"] == 55.0 and out["degraded"] is False
+
+
+def test_photo_summary_enhanced_fields_present_after_enhance() -> None:
+    src = f"{settings.photos}/incoming/trip/IMG_0001.CR3"
+    p = _photo(source_path=src)
+    qr = PhotoQualityReport(photo_hash="abc123", score_q_after=88.0, degraded=0)
+    out = photo_summary(p, None, qr=qr, n_faces=2)
+    assert out["enhanced"] is True
+    assert out["q_after"] == 88.0
+    assert out["degraded"] is False
+    assert out["n_faces"] == 2
+    # enhanced_url mirrors the incoming subfolder into /jpeg with a .jpg suffix
+    assert out["enhanced_url"] == "/jpeg/trip/IMG_0001.jpg"
+
+
+def test_photo_summary_not_enhanced_without_quality_report() -> None:
+    out = photo_summary(_photo(), None)
+    assert out["enhanced"] is False
+    assert out["q_after"] is None
+    assert out["degraded"] is False
+    assert out["n_faces"] == 0
