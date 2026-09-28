@@ -71,7 +71,7 @@ run:
 	$(RUN) run --auto
 
 serve:
-	$(COMPOSE) up ui
+	$(COMPOSE) up --force-recreate ui
 
 shell:
 	$(COMPOSE) run --rm app bash
