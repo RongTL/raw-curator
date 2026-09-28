@@ -210,10 +210,28 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
   const [showFaces, setShowFaces] = useState(false);
   const [nat, setNat] = useState(null); // preview natural size, for face overlay
   const [noteText, setNoteText] = useState("");
+  const imgRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [box, setBox] = useState(null); // rendered image rect within wrapRef, for face overlays
 
   // Reset per-photo view state when navigating to a different frame.
   useEffect(() => { setShowAfter(false); setAfterError(false); setShowFaces(false); }, [hash]);
   useEffect(() => { setNoteText(data?.decision?.note ?? ""); }, [hash, data?.decision?.note]);
+
+  // Measure where the contained image actually renders so face boxes line up.
+  const measure = useCallback(() => {
+    const im = imgRef.current;
+    const wr = wrapRef.current;
+    if (!im || !wr) return;
+    const ir = im.getBoundingClientRect();
+    const wrr = wr.getBoundingClientRect();
+    setBox({ left: ir.left - wrr.left, top: ir.top - wrr.top, width: ir.width, height: ir.height });
+  }, []);
+  useEffect(() => {
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure]);
+  useEffect(() => { measure(); }, [measure, showFaces, showAfter, data]);
 
   const mutate = useCallback(async (patch) => {
     await api.decide({ photo_hash: hash, ...patch });
@@ -294,24 +312,29 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
         </div>
       </div>
 
-      <div class="flex-1 flex items-center justify-center overflow-hidden p-4">
-        <div class="relative inline-block max-h-full max-w-full">
-          <img src=${imgSrc} alt=${data.hash}
-               class="block max-h-full max-w-full object-contain"
-               onLoad=${(e) => { if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight }); }}
-               onError=${() => { if (showAfter) setAfterError(true); }} />
-          ${showFaces && !showingAfter && nat && faces.map((f, i) => html`
-            <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
-                 style=${{ left: `${(f.x / nat.w) * 100}%`, top: `${(f.y / nat.h) * 100}%`,
-                           width: `${(f.w / nat.w) * 100}%`, height: `${(f.h / nat.h) * 100}%` }}>
-              <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
-                ${f.score != null ? f.score.toFixed(2) : ""}</span>
-            </div>`)}
-          ${showAfter && afterError && html`
-            <div class="absolute inset-x-0 bottom-0 bg-amber-950/80 text-amber-200 text-xs text-center py-1">
-              No enhanced output yet — run Submit &amp; continue (or Export JPEG).
-            </div>`}
-        </div>
+      <div ref=${wrapRef} class="flex-1 relative flex items-center justify-center overflow-hidden p-4 min-h-0">
+        <img ref=${imgRef} src=${imgSrc} alt=${data.hash}
+             class="max-h-full max-w-full object-contain"
+             onLoad=${(e) => {
+               if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight });
+               measure();
+             }}
+             onError=${() => { if (showAfter) setAfterError(true); }} />
+        ${showFaces && !showingAfter && nat && box && faces.map((f, i) => html`
+          <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
+               style=${{
+                 left: `${box.left + (f.x / nat.w) * box.width}px`,
+                 top: `${box.top + (f.y / nat.h) * box.height}px`,
+                 width: `${(f.w / nat.w) * box.width}px`,
+                 height: `${(f.h / nat.h) * box.height}px`,
+               }}>
+            <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
+              ${f.score != null ? f.score.toFixed(2) : ""}</span>
+          </div>`)}
+        ${showAfter && afterError && html`
+          <div class="absolute inset-x-0 bottom-0 bg-amber-950/80 text-amber-200 text-xs text-center py-1">
+            No enhanced output yet — run Submit &amp; continue (or Export JPEG).
+          </div>`}
       </div>
 
       <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
