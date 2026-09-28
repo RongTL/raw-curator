@@ -121,11 +121,14 @@ def test_load_linear_float_reads_16bit_rgb_tiff(tmp_path: Path) -> None:
 def test_run_enhancement_delegates_to_run_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.enhancement import batch, enhance_job
+    import sys
+    import types
+
+    from app.enhancement import enhance_job
 
     photos = [
-        (enhance_job.PhotoCandidate("bad", "/x/bad.cr3", "raw", "enhance_only"), []),
-        (enhance_job.PhotoCandidate("ok", "/x/ok.cr3", "raw", "enhance_only"), []),
+        (enhance_job.PhotoCandidate("bad", "/x/bad.cr3", "raw"), []),
+        (enhance_job.PhotoCandidate("ok", "/x/ok.cr3", "raw"), []),
     ]
     expected = enhance_job.EnhanceSummary(enhanced=1, skipped=0, failed=1)
     received: list[object] = []
@@ -134,9 +137,14 @@ def test_run_enhancement_delegates_to_run_batch(
         received.append(items)
         return expected
 
+    # run_enhancement does a lazy `from app.enhancement.batch import run_batch`.
+    # batch.py is intentionally broken until Task 7, so inject a stand-in module
+    # rather than importing the real one — this test must not depend on batch.
+    fake_batch = types.ModuleType("app.enhancement.batch")
+    fake_batch.run_batch = fake_run_batch  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "app.enhancement.batch", fake_batch)
     monkeypatch.setattr(enhance_job, "warmup", lambda: None)
     monkeypatch.setattr(enhance_job, "_candidates", lambda: photos)
-    monkeypatch.setattr(batch, "run_batch", fake_run_batch)
 
     summary = enhance_job.run_enhancement()
 
@@ -150,21 +158,33 @@ def test_preview_size_missing_file_means_no_faces(tmp_path: Path) -> None:
     assert preview_size(tmp_path / "nope.jpg") is None
 
 
-def test_degraded_result_never_deletes_the_source(tmp_path: Path) -> None:
+def test_candidates_selects_all_raw(tmp_db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.enhancement import enhance_job
-    from app.enhancement.verify import Verdict
+    from app.models import Photo
 
-    src = tmp_path / "IMG.CR3"
-    src.write_bytes(b"raw")
-    out = tmp_path / "IMG.tif"
-    out.write_bytes(b"tif")
-    photo = enhance_job.PhotoCandidate("h", str(src), "raw", "enhance_only")
-    assert (
-        enhance_job.may_delete_source(photo, out, Verdict(True, ("q_drop",), 80.0, 70.0)) is False
-    )
-    assert enhance_job.may_delete_source(photo, out, Verdict(False, (), 80.0, 82.0)) is True
-    keep = enhance_job.PhotoCandidate("h", str(src), "raw", "keep_and_enhance")
-    assert enhance_job.may_delete_source(keep, out, Verdict(False, (), 80.0, 82.0)) is False
+    tmp_db.add(Photo(hash="a" * 32, source_path="/data/photos/incoming/a.CR3", file_kind="raw"))
+    tmp_db.add(Photo(hash="b" * 32, source_path="/data/photos/incoming/b.JPG", file_kind="jpeg"))
+    tmp_db.commit()
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def _scope() -> Iterator[Session]:
+        yield tmp_db
+
+    monkeypatch.setattr(enhance_job, "session_scope", _scope)
+
+    cands = enhance_job._candidates()
+    hashes = {c.hash for c, _ in cands}
+    assert hashes == {"a" * 32}  # non-RAW excluded; no decision needed
+
+
+def test_photo_candidate_has_no_action() -> None:
+    from dataclasses import fields
+
+    from app.enhancement.enhance_job import PhotoCandidate
+
+    assert "action" not in {f.name for f in fields(PhotoCandidate)}
 
 
 def test_candidates_carry_lens_exif_from_the_photo_row(
@@ -174,7 +194,6 @@ def test_candidates_carry_lens_exif_from_the_photo_row(
     from contextlib import contextmanager
 
     from app.enhancement import enhance_job
-    from app.models import Decision
 
     tmp_db.add(
         Photo(
@@ -188,7 +207,6 @@ def test_candidates_carry_lens_exif_from_the_photo_row(
             focal_length=24.0,
         )
     )
-    tmp_db.add(Decision(photo_hash="hL", action="enhance_only"))
     tmp_db.commit()
 
     @contextmanager
