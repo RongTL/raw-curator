@@ -61,6 +61,7 @@ def test_missing_focal_length_is_noop() -> None:
 
 
 def test_unknown_lens_is_noop() -> None:
+    pytest.importorskip("lensfunpy")  # otherwise this passes for the wrong reason (no lensfunpy)
     img = _synthetic()
     exif = ExifData(
         camera_make="Nikon",
