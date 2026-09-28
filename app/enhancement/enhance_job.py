@@ -46,6 +46,11 @@ class PhotoCandidate:
     action: str
     preview_path: str | None = None
     iso: int | None = None
+    camera_make: str | None = None
+    camera_body: str | None = None
+    lens: str | None = None
+    aperture: float | None = None
+    focal_length: float | None = None
 
 
 def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
@@ -59,6 +64,11 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                 Decision.action,
                 Photo.preview_path,
                 Photo.iso,
+                Photo.camera_make,
+                Photo.camera_body,
+                Photo.lens,
+                Photo.aperture,
+                Photo.focal_length,
             )
             .join(Decision, Photo.hash == Decision.photo_hash)
             .where(Decision.action.in_(ENHANCE_ACTIONS))
@@ -69,7 +79,19 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
         ).all()
         for digest, x, y, w, h in face_rows:
             faces_by_hash.setdefault(digest, []).append((int(x), int(y), int(w), int(h)))
-        for digest, source_path, file_kind, action, preview_path, iso in rows:
+        for (
+            digest,
+            source_path,
+            file_kind,
+            action,
+            preview_path,
+            iso,
+            camera_make,
+            camera_body,
+            lens,
+            aperture,
+            focal_length,
+        ) in rows:
             snapshots.append(
                 (
                     PhotoCandidate(
@@ -79,6 +101,11 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                         action=action,
                         preview_path=preview_path,
                         iso=iso,
+                        camera_make=camera_make,
+                        camera_body=camera_body,
+                        lens=lens,
+                        aperture=aperture,
+                        focal_length=focal_length,
                     ),
                     faces_by_hash.get(digest, []),
                 )

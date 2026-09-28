@@ -62,3 +62,24 @@ def test_plan_matches_expectation(stem: str, tmp_path: Path) -> None:
     if "clahe_max" in exp:
         clips = [s.params["clip_limit"] for s in plan.steps if s.name == "clahe_local_contrast"]
         assert all(c <= exp["clahe_max"] for c in clips)
+
+
+@pytest.mark.parametrize("stem", ["IMG_0098", "IMG_1124", "IMG_1177"])
+def test_lens_correction_applies_to_corpus_frame(stem: str, tmp_path: Path) -> None:
+    pytest.importorskip("lensfunpy")
+    from app.enhancement.classical.lens_correct import correct_lens
+    from app.ingest.exif import ExifReader
+
+    raw = CORPUS / f"{stem}.CR3"
+    if not raw.exists():
+        pytest.skip(f"{raw} not present")
+    img = _develop_linear(raw, tmp_path)
+    with ExifReader() as ex:
+        exif = ex.read(raw)
+    out = correct_lens(img, exif, enabled=True)
+    # The whole corpus is the RF 24/1.8 Macro, which our shipped XML resolves, so
+    # the geometry/CA remap must fire and preserve shape/dtype/range.
+    assert out.shape == img.shape
+    assert out.dtype == np.float32
+    assert float(out.min()) >= 0.0 and float(out.max()) <= 1.0
+    assert not np.array_equal(out, img)

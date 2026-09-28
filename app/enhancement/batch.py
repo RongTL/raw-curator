@@ -19,6 +19,7 @@ from rich.progress import Progress
 from app.arrays import Array
 from app.config import settings
 from app.db import session_scope
+from app.enhancement.classical.lens_correct import correct_lens
 from app.enhancement.denoise import ScunetModel
 from app.enhancement.develop_full import darktable_cli, read_icc_profile
 from app.enhancement.downsample import resize_float
@@ -51,6 +52,7 @@ from app.enhancement.sidecar import resolve_xmp
 from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import RealEsrganModel
 from app.enhancement.verify import Verdict, safe_plan, verify
+from app.ingest.exif import ExifData
 from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
@@ -138,6 +140,17 @@ def persist_all(item: WorkItem, verdict: Verdict | None = None) -> None:
             persist_verdict(sess, item.photo.hash, verdict)
 
 
+def _exif_for(photo: PhotoCandidate) -> ExifData:
+    """The lens/camera fields lens correction needs, from the ingest DB snapshot."""
+    return ExifData(
+        camera_make=photo.camera_make,
+        camera_body=photo.camera_body,
+        lens=photo.lens,
+        aperture=photo.aperture,
+        focal_length=photo.focal_length,
+    )
+
+
 def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     src = Path(item.photo.source_path)
     xmp = resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
@@ -152,6 +165,15 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     finally:
         with contextlib.suppress(OSError):
             dev.unlink()
+    # Distortion + CA correction per-frame from EXIF, before measuring/planning so
+    # every downstream step sees the geometrically-correct frame. No-op for lenses
+    # lensfun cannot resolve. Shape is preserved, so native_size stays valid. EXIF
+    # comes from the ingest DB snapshot (no per-frame disk read). Face boxes were
+    # detected on the *uncorrected* preview, so a face near a frame edge sits a few
+    # pixels off its true corrected position (bounded by the distortion at that
+    # radius; sub-percent near center, low single-digit percent at the corners) —
+    # acceptable, as CodeFormer re-aligns within the supplied region.
+    img = correct_lens(img, _exif_for(item.photo), enabled=settings.enhance_lens_correction)
     h, w = img.shape[:2]
     item.native_size = (w, h)
     size = preview_size(Path(item.photo.preview_path) if item.photo.preview_path else None)
@@ -266,6 +288,7 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
         finally:
             with contextlib.suppress(OSError):
                 dev.unlink()
+        base = correct_lens(base, _exif_for(item.photo), enabled=settings.enhance_lens_correction)
         retry = safe_plan(plan)
         retry_img = run_plan(base, retry, native_size=item.native_size)
         retry_after = score_report(measure_all(retry_img, face_boxes=item.face_boxes or None))

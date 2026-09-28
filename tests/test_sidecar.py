@@ -40,12 +40,7 @@ def test_legacy_stem_lookup_still_works_with_warning(
     assert "legacy" in caplog.text
 
 
-def test_baseline_used_when_no_user_sidecar(tmp_path: Path) -> None:
+def test_no_user_sidecar_returns_none(tmp_path: Path) -> None:
     photos, xmp, src = _tree(tmp_path)
-    base = tmp_path / "base.xmp"
-    base.write_text("")
-    assert resolve_xmp(src, photos_root=photos, xmp_root=xmp, baseline=base) == base
-    assert (
-        resolve_xmp(src, photos_root=photos, xmp_root=xmp, baseline=tmp_path / "missing.xmp")
-        is None
-    )
+    xmp.mkdir()
+    assert resolve_xmp(src, photos_root=photos, xmp_root=xmp) is None

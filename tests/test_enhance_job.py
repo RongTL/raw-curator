@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -164,3 +165,41 @@ def test_degraded_result_never_deletes_the_source(tmp_path: Path) -> None:
     assert enhance_job.may_delete_source(photo, out, Verdict(False, (), 80.0, 82.0)) is True
     keep = enhance_job.PhotoCandidate("h", str(src), "raw", "keep_and_enhance")
     assert enhance_job.may_delete_source(keep, out, Verdict(False, (), 80.0, 82.0)) is False
+
+
+def test_candidates_carry_lens_exif_from_the_photo_row(
+    tmp_db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lens correction reads EXIF from the DB snapshot, not a per-frame disk read."""
+    from contextlib import contextmanager
+
+    from app.enhancement import enhance_job
+    from app.models import Decision
+
+    tmp_db.add(
+        Photo(
+            hash="hL",
+            source_path="/x/IMG.CR3",
+            file_kind="raw",
+            camera_make="Canon",
+            camera_body="Canon EOS R8",
+            lens="RF24mm F1.8 MACRO IS STM",
+            aperture=8.0,
+            focal_length=24.0,
+        )
+    )
+    tmp_db.add(Decision(photo_hash="hL", action="enhance_only"))
+    tmp_db.commit()
+
+    @contextmanager
+    def _fake_scope() -> Iterator[Session]:
+        yield tmp_db
+
+    monkeypatch.setattr(enhance_job, "session_scope", _fake_scope)
+
+    ((cand, _faces),) = enhance_job._candidates()
+    assert cand.camera_make == "Canon"
+    assert cand.camera_body == "Canon EOS R8"
+    assert cand.lens == "RF24mm F1.8 MACRO IS STM"
+    assert cand.aperture == 8.0
+    assert cand.focal_length == 24.0
