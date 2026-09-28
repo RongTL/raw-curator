@@ -37,14 +37,16 @@ def photo_summary(
     d: Decision | None,
     *,
     rank: int | None = None,
-    qr: PhotoQualityReport | None = None,
+    q_after: float | None = None,
+    degraded: bool = False,
     n_faces: int = 0,
 ) -> dict[str, Any]:
     """The tile-level shape used by the queue grid and cluster sections.
 
-    ``qr`` (when joined by the caller) exposes the post-enhance result so the grid
-    can badge/filter enhanced frames; ``n_faces`` drives the has-faces filter.
-    ``enhanced_url`` is derived and may 404 until export-jpeg has run.
+    ``q_after``/``degraded`` (from the quality report, when the caller looked it up)
+    expose the post-enhance result so the grid can badge/filter enhanced frames;
+    ``n_faces`` drives the has-faces filter. ``enhanced_url`` is derived and may 404
+    until export-jpeg has run.
     """
     return {
         "hash": p.hash,
@@ -61,9 +63,9 @@ def photo_summary(
         "cluster_id": p.cluster_id,
         "is_recommended": bool(p.is_recommended),
         "n_faces": n_faces,
-        "enhanced": qr is not None and qr.score_q_after is not None,
-        "q_after": qr.score_q_after if qr is not None else None,
-        "degraded": bool(qr.degraded) if qr is not None else False,
+        "enhanced": q_after is not None,
+        "q_after": q_after,
+        "degraded": degraded,
         "rank": rank,
         "decision": decision_payload(d),
     }

@@ -5,9 +5,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
+from app.api.routes._review_data import quality_report_or_none
 from app.api.serializers import photo_detail
 from app.db import session_scope
-from app.models import Decision, Face, Photo, PhotoQualityReport
+from app.models import Decision, Face, Photo
 
 router = APIRouter()
 
@@ -23,5 +24,5 @@ def get_photo(photo_hash: str) -> dict[str, Any]:
             photo,
             sess.get(Decision, photo_hash),
             faces,
-            sess.get(PhotoQualityReport, photo_hash),
+            quality_report_or_none(sess, photo_hash),
         )
