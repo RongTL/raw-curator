@@ -17,10 +17,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import session_scope
-from app.decision.rules import ENHANCE_ACTIONS
-from app.ingest.extensions import ALL_SUPPORTED_EXTS, JPEG_EXTS, TIFF_EXTS
+from app.decision.export_rules import KEEP_CHOICES
+from app.ingest.extensions import ALL_SUPPORTED_EXTS
 from app.models import Cluster, Decision, Photo
-from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 
@@ -92,47 +91,30 @@ def _cluster_progress() -> tuple[int, int]:
     return (1 if clusters else 0), 1
 
 
-def _submit_progress() -> tuple[int, int]:
+def _enhance_progress() -> tuple[int, int]:
+    # Every RAW is developed + rendered; done == before/after renders on disk.
+    d = settings.enhanced_dir
+    done = sum(1 for _ in d.glob("*.after.full.jpg")) if d.exists() else 0
+    with session_scope() as sess:
+        total = _count(
+            sess, select(func.count()).select_from(Photo).where(Photo.file_kind == "raw")
+        )
+    return min(done, total), total
+
+
+def _export_progress() -> tuple[int, int]:
+    # Keepers (original/enhanced) each yield a share JPEG; done == applied rows.
     with session_scope() as sess:
         applied = _count(
             sess, select(func.count()).select_from(Decision).where(Decision.applied == 1)
         )
-        decided = _count(
-            sess,
-            select(func.count()).select_from(Decision).where(Decision.selected != "undecided"),
-        )
-    return applied, decided
-
-
-def _enhance_progress() -> tuple[int, int]:
-    # Enhance only develops RAW sources; non-RAW decisions never produce a TIFF.
-    tiffs = _count_files(settings.photos / "exported", TIFF_EXTS)
-    with session_scope() as sess:
-        eligible = _count(
+        keepers = _count(
             sess,
             select(func.count())
             .select_from(Decision)
-            .join(Photo, Photo.hash == Decision.photo_hash)
-            .where(Decision.action.in_(ENHANCE_ACTIONS), Photo.file_kind == "raw"),
+            .where(Decision.export_choice.in_(KEEP_CHOICES)),
         )
-    return min(tiffs, eligible), eligible
-
-
-def _export_jpeg_progress() -> tuple[int, int]:
-    # A kept RAW in library/ and its enhanced TIFF in exported/ share one jpeg
-    # destination; count distinct destination stems, not source files.
-    source_roots: tuple[tuple[Path, frozenset[str] | None], ...] = (
-        (settings.photos / "library", None),
-        (settings.photos / "exported", TIFF_EXTS),
-    )
-    destinations = {
-        relative_subpath(p, settings.photos).with_suffix("")
-        for root, suffixes in source_roots
-        for p in _iter_files(root, suffixes)
-    }
-    jpegs = _count_files(settings.photos / settings.jpeg_subdir, JPEG_EXTS)
-    total = len(destinations)
-    return min(jpegs, total), total
+    return applied, keepers
 
 
 _STAGE_HANDLERS: dict[str, Callable[[], tuple[int, int]]] = {
@@ -140,9 +122,8 @@ _STAGE_HANDLERS: dict[str, Callable[[], tuple[int, int]]] = {
     "filter": _filter_progress,
     "score": _score_progress,
     "cluster": _cluster_progress,
-    "submit": _submit_progress,
     "enhance": _enhance_progress,
-    "export-jpeg": _export_jpeg_progress,
+    "export": _export_progress,
 }
 
 
@@ -164,7 +145,9 @@ def batch_summary() -> dict[str, int]:
             photos = _count(sess, select(func.count()).select_from(Photo))
             decided = _count(
                 sess,
-                select(func.count()).select_from(Decision).where(Decision.selected != "undecided"),
+                select(func.count())
+                .select_from(Decision)
+                .where(Decision.export_choice != "undecided"),
             )
     except OperationalError as exc:
         _warn_no_schema_once(exc)
