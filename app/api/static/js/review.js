@@ -2,7 +2,7 @@
 // Components are unchanged except: imports, and ReviewPanel replacing App/Header.
 import { api } from "./api.js";
 import {
-  Fragment, html, useCallback, useEffect, useMemo, useRef, useState,
+  Fragment, createPortal, html, useCallback, useEffect, useMemo, useRef, useState,
   useKeyboardShortcuts, useQuery,
 } from "./ui.js";
 import { EMPTY_FILTER, FilterBar, matchesFilter } from "./filters.js";
@@ -238,38 +238,31 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
   const [showAfter, setShowAfter] = useState(false);
   const [afterError, setAfterError] = useState(false);
   const [showFaces, setShowFaces] = useState(false);
-  const [nat, setNat] = useState(null); // preview natural size, for face overlay
+  const [nat, setNat] = useState(null); // preview natural size; fallback when the API has no dims
   const [noteText, setNoteText] = useState("");
-  const imgRef = useRef(null);
-  const wrapRef = useRef(null);
   const rootRef = useRef(null); // modal container; focused on open so keys don't leak to the grid
-  const [box, setBox] = useState(null); // rendered image rect within wrapRef, for face overlays
 
   // Move focus into the dialog once its content renders. Otherwise the tile that
   // opened it keeps focus, and since React delegates events below window, a plain
   // Enter would re-fire that tile's onKeyDown and jump back to the first photo.
   useEffect(() => { rootRef.current?.focus(); }, [!!data]);
 
+  // The viewer is a full-screen portal over <body>; lock the grid behind it so it
+  // can't scroll or be clicked, and restore it on close. overflow:hidden keeps the
+  // grid's scroll position for when the viewer closes.
+  useEffect(() => {
+    const main = document.querySelector("main");
+    if (!main) return undefined;
+    const prev = main.style.overflow;
+    main.style.overflow = "hidden";
+    return () => { main.style.overflow = prev; };
+  }, []);
+
   // Reset the before/after toggle per photo (a new frame may have no enhanced
   // version). The faces toggle is intentionally sticky across navigation, so
   // reviewing faces across a burst doesn't need re-enabling on every frame.
-  useEffect(() => { setShowAfter(false); setAfterError(false); }, [hash]);
+  useEffect(() => { setShowAfter(false); setAfterError(false); setNat(null); }, [hash]);
   useEffect(() => { setNoteText(data?.decision?.note ?? ""); }, [hash, data?.decision?.note]);
-
-  // Measure where the contained image actually renders so face boxes line up.
-  const measure = useCallback(() => {
-    const im = imgRef.current;
-    const wr = wrapRef.current;
-    if (!im || !wr) return;
-    const ir = im.getBoundingClientRect();
-    const wrr = wr.getBoundingClientRect();
-    setBox({ left: ir.left - wrr.left, top: ir.top - wrr.top, width: ir.width, height: ir.height });
-  }, []);
-  useEffect(() => {
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [measure]);
-  useEffect(() => { measure(); }, [measure, showFaces, showAfter, data]);
 
   const mutate = useCallback(async (patch) => {
     await api.decide({ photo_hash: hash, ...patch });
@@ -305,10 +298,10 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     "f": () => mutate({ favorite: !data?.decision?.favorite }),
   }), [mutate, decideAndAdvance, data, onClose, onPrev, onNext, onNextUndecided]));
 
-  if (!data) return html`
-    <div class="fixed inset-0 bg-black/80 flex items-center justify-center">
+  if (!data) return createPortal(html`
+    <div class="fixed inset-0 z-50 bg-zinc-950 flex items-center justify-center">
       <div class="text-zinc-400">loading…</div>
-    </div>`;
+    </div>`, document.body);
 
   const d = data.decision;
   const enhanced = data.quality_report?.score_q_after != null;
@@ -326,10 +319,23 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     mp ? `${data.width}×${data.height} · ${mp.toFixed(0)}MP` : null,
   ].filter(Boolean);
 
-  return html`
-    <div ref=${rootRef} tabindex="-1"
-         class="fixed inset-0 z-50 bg-black flex flex-col outline-none" role="dialog" aria-modal="true">
-      <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm">
+  // Stage sizing AND face-box placement both use the LOADED preview's natural
+  // size (`nat`) — the exact pixel space the face bboxes were detected in and the
+  // true displayed aspect ratio. We deliberately do NOT use data.width/height:
+  // those are the full-resolution original dims (from EXIF ImageWidth/Height) and
+  // may carry the sensor's pre-rotation orientation, so they'd both misplace the
+  // boxes (wrong scale) and risk the wrong aspect ratio. Until the image loads we
+  // fall back to a plain contained <img> (which already fits); before/after share
+  // an aspect ratio, so toggling never reflows.
+  const dw = nat?.w ?? null;
+  const dh = nat?.h ?? null;
+  const ratioReady = Boolean(dw && dh);
+
+  return createPortal(html`
+    <div ref=${rootRef} tabindex="-1" role="dialog" aria-modal="true"
+         class="fixed inset-0 z-50 bg-zinc-950 outline-none flex flex-col
+                lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_minmax(0,1fr)]">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm lg:col-span-2">
         <div class="flex items-center gap-3 min-w-0">
           <button onClick=${onPrev} class="px-2 py-1 bg-zinc-800 rounded" title="prev (←)">←</button>
           <button onClick=${onNext} class="px-2 py-1 bg-zinc-800 rounded" title="next (→)">→</button>
@@ -360,32 +366,41 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
         </div>
       </div>
 
-      <div ref=${wrapRef} class="flex-1 relative flex items-center justify-center overflow-hidden p-4 min-h-0">
-        <img ref=${imgRef} src=${imgSrc} alt=${data.filename ?? data.hash}
-             class="max-h-[calc(100vh-18rem)] max-w-full min-w-0 object-contain"
-             onLoad=${(e) => {
-               if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight });
-               measure();
-             }}
-             onError=${() => { if (showAfter) setAfterError(true); }} />
-        ${showFaces && !showingAfter && nat && box && faces.map((f, i) => html`
-          <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
-               style=${{
-                 left: `${box.left + (f.x / nat.w) * box.width}px`,
-                 top: `${box.top + (f.y / nat.h) * box.height}px`,
-                 width: `${(f.w / nat.w) * box.width}px`,
-                 height: `${(f.h / nat.h) * box.height}px`,
-               }}>
-            <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
-              ${f.score != null ? f.score.toFixed(2) : ""}</span>
-          </div>`)}
+      <div class="relative flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden
+                  [container-type:size] lg:col-start-1 lg:row-start-2 lg:min-w-0">
+        ${ratioReady ? html`
+          <div class="relative"
+               style=${{ aspectRatio: `${dw} / ${dh}`, width: `min(100cqw, calc(100cqh * ${dw / dh}))` }}>
+            <img src=${imgSrc} alt=${data.filename ?? data.hash}
+                 class="absolute inset-0 w-full h-full object-contain"
+                 onLoad=${(e) => { if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight }); }}
+                 onError=${() => { if (showAfter) setAfterError(true); }} />
+            ${showFaces && !showingAfter && faces.map((f, i) => html`
+              <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
+                   style=${{
+                     left: `${(f.x / dw) * 100}%`,
+                     top: `${(f.y / dh) * 100}%`,
+                     width: `${(f.w / dw) * 100}%`,
+                     height: `${(f.h / dh) * 100}%`,
+                   }}>
+                <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
+                  ${f.score != null ? f.score.toFixed(2) : ""}</span>
+              </div>`)}
+          </div>`
+        : html`
+          <img src=${imgSrc} alt=${data.filename ?? data.hash}
+               class="max-h-full max-w-full object-contain"
+               onLoad=${(e) => { if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight }); }}
+               onError=${() => { if (showAfter) setAfterError(true); }} />`}
         ${showAfter && afterError && html`
           <div class="absolute inset-x-0 bottom-0 bg-amber-950/80 text-amber-200 text-xs text-center py-1">
             No enhanced output yet — run Submit & continue (or Export JPEG).
           </div>`}
       </div>
 
-      <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+      <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm
+                  lg:grid-cols-1 lg:content-start lg:border-t-0 lg:border-l lg:overflow-y-auto
+                  lg:min-h-0 lg:col-start-2 lg:row-start-2">
         <div>
           <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">scores</div>
           <div>aesthetic: <span class="text-zinc-100">${data.aesthetic_score?.toFixed(2) ?? "—"}</span></div>
@@ -447,7 +462,7 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           <div>captured ${data.captured_at ?? "—"}</div>
         </div>
       </div>
-    </div>`;
+    </div>`, document.body);
 }
 
 function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setView,
