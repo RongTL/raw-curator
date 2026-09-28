@@ -62,3 +62,17 @@ def test_plan_matches_expectation(stem: str, tmp_path: Path) -> None:
     if "clahe_max" in exp:
         clips = [s.params["clip_limit"] for s in plan.steps if s.name == "clahe_local_contrast"]
         assert all(c <= exp["clahe_max"] for c in clips)
+
+
+@pytest.mark.parametrize("stem", ["IMG_0098", "IMG_1124", "IMG_1177"])
+def test_baseline_develops_every_kind_of_frame(stem: str, tmp_path: Path) -> None:
+    from app.enhancement.sidecar import BASELINE_XMP
+
+    raw = CORPUS / f"{stem}.CR3"
+    if not raw.exists():
+        pytest.skip(f"{raw} not present")
+    out = darktable_cli(raw, BASELINE_XMP, out_path=tmp_path / "b.tif")
+    arr = tifffile.imread(str(out))
+    assert arr.dtype == np.uint16
+    assert arr.shape[2] == 3
+    assert max(arr.shape[:2]) >= 5900

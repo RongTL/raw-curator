@@ -47,7 +47,7 @@ from app.enhancement.enhance_job import (
 from app.enhancement.face_restore import CodeFormerModel
 from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import copy_metadata, write_tiff16
-from app.enhancement.sidecar import resolve_xmp
+from app.enhancement.sidecar import BASELINE_XMP, resolve_xmp
 from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import RealEsrganModel
 from app.enhancement.verify import Verdict, safe_plan, verify
@@ -140,7 +140,12 @@ def persist_all(item: WorkItem, verdict: Verdict | None = None) -> None:
 
 def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     src = Path(item.photo.source_path)
-    xmp = resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
+    xmp = resolve_xmp(
+        src,
+        photos_root=settings.photos,
+        xmp_root=settings.xmp,
+        baseline=BASELINE_XMP if settings.darktable_baseline else None,
+    )
     dev = develop(src, xmp)
     try:
         item.icc = read_icc_profile(dev)
@@ -260,7 +265,15 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
             "%s degraded (%s); retrying with the safe plan", src.name, ",".join(verdict.reasons)
         )
         # The safe plan has no AI steps, so it can run from the original development again.
-        dev = develop(src, resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp))
+        dev = develop(
+            src,
+            resolve_xmp(
+                src,
+                photos_root=settings.photos,
+                xmp_root=settings.xmp,
+                baseline=BASELINE_XMP if settings.darktable_baseline else None,
+            ),
+        )
         try:
             base = _load_linear_float(dev)
         finally:

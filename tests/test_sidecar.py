@@ -49,3 +49,9 @@ def test_baseline_used_when_no_user_sidecar(tmp_path: Path) -> None:
         resolve_xmp(src, photos_root=photos, xmp_root=xmp, baseline=tmp_path / "missing.xmp")
         is None
     )
+
+
+def test_default_baseline_path_points_at_the_shipped_sidecar() -> None:
+    from app.enhancement.sidecar import BASELINE_XMP
+
+    assert BASELINE_XMP.name == "raw-curator-base.xmp" and BASELINE_XMP.exists()

@@ -15,6 +15,8 @@ from app.paths import relative_subpath
 log = logging.getLogger(__name__)
 _warned_legacy = False
 
+BASELINE_XMP = Path(__file__).resolve().parent / "darktable" / "raw-curator-base.xmp"
+
 
 def resolve_xmp(
     source: Path,
