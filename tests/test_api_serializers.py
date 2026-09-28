@@ -75,7 +75,6 @@ def test_photo_detail_extends_summary_with_exif_faces_and_report() -> None:
 
 def test_quality_report_payload_exposes_recipe_and_verdict() -> None:
     from app.api.serializers import quality_report_payload
-    from app.models import PhotoQualityReport
 
     qr = PhotoQualityReport(
         photo_hash="abc123",
@@ -115,8 +114,7 @@ def test_quality_report_payload_exposes_recipe_and_verdict() -> None:
 def test_photo_summary_enhanced_fields_present_after_enhance() -> None:
     src = f"{settings.photos}/incoming/trip/IMG_0001.CR3"
     p = _photo(source_path=src)
-    qr = PhotoQualityReport(photo_hash="abc123", score_q_after=88.0, degraded=0)
-    out = photo_summary(p, None, qr=qr, n_faces=2)
+    out = photo_summary(p, None, q_after=88.0, degraded=False, n_faces=2)
     assert out["enhanced"] is True
     assert out["q_after"] == 88.0
     assert out["degraded"] is False
