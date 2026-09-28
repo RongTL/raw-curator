@@ -3,9 +3,10 @@
 An ephemeral, single-batch AI photo curation pipeline. Drop a batch of
 RAW, JPEG, TIFF, HEIC, or PNG files into `photos/incoming/`, then drive
 the whole pipeline from the **Control Center** web UI: auto-run the
-analysis stages, review, submit decisions, run the Auto Enhancement
-Engine on every decided photo, export JPEGs, then wipe the session and
-start fresh on the next batch.
+analysis stages *and* the Auto Enhancement Engine on every RAW, review
+each frame **original vs enhanced** side by side, pick a version per
+photo (with an independent keep-RAW toggle), export the chosen JPEGs,
+then wipe the session and start fresh on the next batch.
 
 Everything runs inside a Podman container. The host only needs the NVIDIA
 driver, Podman, `podman-compose`, and the NVIDIA Container Toolkit.
@@ -33,44 +34,42 @@ For each batch:
 4. **Cluster** — EXIF burst grouping, then CLIP HDBSCAN across the rest of
    the batch; one recommendation per cluster (ranked 0.6·technical +
    0.4·aesthetic).
-5. **Review** — the Control Center (FastAPI + a single-page React UI,
-   CDN, no Node build) shows a stage timeline and a review panel
-   (All/Clusters views). Stage decisions per photo with keyboard
-   shortcuts; nothing on disk moves until you click **Submit &
-   continue**.
-6. **Decide** — binary table: `selected` → action. Score tier is no
-   longer part of routing.
-
-   | Selected | Action             | At submit                         | After enhance                                             |
-   |----------|--------------------|-----------------------------------|-----------------------------------------------------------|
-   | yes      | `keep_and_enhance` | Move RAW → `photos/library/`      | Enhanced TIFF in `photos/exported/`; RAW kept in `library/` |
-   | no       | `enhance_only`     | RAW stays in place (e.g. `incoming/`) | Enhanced TIFF in `photos/exported/`; **original RAW deleted from disk** |
-
-7. **Enhance** — runs on every decided photo (yes or no) via the **Auto
+5. **Enhance** — runs on **every RAW**, *before* review, via the **Auto
    Enhancement Engine**. Darktable develops the RAW with its sigmoid
-   workflow into a 16-bit **linear Rec.2020** master (embedded ICC
-   profile + EXIF copied from the source); lens distortion and chromatic
-   aberration are corrected per-frame from EXIF (lensfun); the engine measures the frame
-   across five quality dimensions (exposure, dynamic range, color,
-   sharpness, noise) and builds a **per-photo recipe** of classical + AI
-   steps tuned to its measured deficits — the recipe is visible in the
-   review UI. Each AI step (SCUNet denoise, Real-ESRGAN when enlarging or
-   the source is small, CodeFormer for faces that are small, soft, or in
-   a noisy frame) sees an 8-bit sRGB copy but is merged back as a *delta*
-   into the float master, so the 16-bit master is never quantised. Every result passes a
-   verification gate before it is written to `photos/exported/`; for
-   `no` photos (`action == "enhance_only"`) the source RAW is deleted
-   only after the TIFF is written **and** the verdict is not degraded —
-   if enhance fails or degrades the frame, the original is preserved.
-   **Only runs on RAW sources** — already-developed JPEG/TIFF/HEIC
-   inputs are skipped with a warning since the engine expects sensor
-   data, not 8-bit display-referred pixels.
-8. **Export JPEG** *(optional)* — `make export-jpeg` develops every
-   kept RAW in `photos/library/` and every enhanced TIFF in
-   `photos/exported/` into a share-ready JPEG under `photos/jpeg/`.
-   EXIF is copied from the source; orientation is baked in so viewers
-   render the image right-side-up without further rotation.
-9. **Reset** — `make reset` deletes the SQLite DB, clears cache and
+   workflow into a 16-bit **linear Rec.2020** intermediate; lens
+   distortion and chromatic aberration are corrected per-frame from EXIF
+   (lensfun); the engine measures the frame across five quality
+   dimensions (exposure, dynamic range, color, sharpness, noise) and
+   builds a **per-photo recipe** of classical + AI steps tuned to its
+   measured deficits — the recipe is visible in the review UI. Each AI
+   step (SCUNet denoise, Real-ESRGAN when enlarging or the source is
+   small, CodeFormer for faces that are small, soft, or in a noisy frame)
+   sees an 8-bit sRGB copy but is merged back as a *delta* into the float
+   master, so the master is never quantised; the result passes a
+   verification gate. Instead of a TIFF master, enhance writes four
+   preview JPEGs per photo into `cache/enhanced/` — a **before**
+   (developed, un-enhanced) and an **after** (enhanced) at review
+   resolution plus full-res copies — so the before/after comparison is
+   ready the moment review starts. Enhance **never moves or deletes a
+   RAW**. **Only runs on RAW sources** — already-developed JPEG/TIFF/HEIC
+   inputs are skipped (offered original-only in review) since the engine
+   expects sensor data, not 8-bit display-referred pixels.
+6. **Review** — the Control Center (FastAPI + a single-page React UI,
+   CDN, no Node build) shows a stage timeline and a review panel
+   (All/Clusters views). Each frame gets a real **before/after slider**
+   (developed original vs enhanced) plus a per-photo version pick —
+   **original** / **enhanced** / **discard** — and an independent
+   **keep-RAW** checkbox, all with keyboard shortcuts. Everything is
+   staged; nothing on disk moves until you click **Export selected**.
+7. **Export** — replaces the old submit + export-jpeg steps. For each
+   kept photo (`original` or `enhanced`) it writes the chosen JPEG into
+   `photos/jpeg/` (enhanced → the cached enhanced render; original → the
+   developed RAW render, or the source itself for a non-RAW), then
+   applies retention: `keep_raw` moves the RAW into `photos/library/`,
+   otherwise the RAW is deleted **after** the JPEG exists on disk.
+   `discard`/`undecided` photos produce nothing. EXIF copied from the
+   source; orientation baked in.
+8. **Reset** — `make reset` deletes the SQLite DB, clears cache and
    working dirs; `models/` is left alone.
 
 ---
@@ -97,13 +96,14 @@ make serve
 
 Open `http://<host>:8080` and drive the whole batch from the browser:
 
-1. Click **Auto-run** — leg 1 runs ingest → filter → score → cluster,
-   then stops for human review.
-2. Review in the panel (yes/no per photo, bulk "don't keep any RAW",
-   keyboard shortcuts), then click **Submit & continue** — leg 2 runs
-   submit → enhance → export-jpeg unattended.
-3. Done: share-ready JPEGs land in `photos/jpeg/`, enhanced 16-bit
-   TIFFs in `photos/exported/`, kept RAWs in `photos/library/`.
+1. Click **Auto-run** — leg 1 runs ingest → filter → score → cluster →
+   **enhance**, then stops for human review.
+2. Review in the panel: drag the **before/after slider**, pick
+   **original / enhanced / discard** per photo and toggle keep-RAW
+   (bulk controls + keyboard shortcuts too), then click **Export
+   selected** — leg 2 runs the export unattended.
+3. Done: share-ready JPEGs land in `photos/jpeg/` and kept RAWs in
+   `photos/library/`.
 4. Copy your outputs somewhere safe, then click **New batch** (type
    `RESET` to confirm) to wipe the session — `photos/incoming/` and
    `models/` are left alone.
@@ -126,15 +126,15 @@ make reset
 # Drop RAWs into photos/incoming/, then run the analysis pipeline (no UI)
 make run            # = make ingest filter score cluster
 
-# Start the UI just for review + submit
-make serve
-
-# After reviewing in the UI and submitting, the files move on disk.
-# Run the Auto Enhancement Engine on every decided photo (yes and no):
+# Run the Auto Enhancement Engine on every RAW (before review):
 make enhance
 
-# Optional final step: produce share-ready JPEGs from library RAWs and exported TIFFs
-make export-jpeg
+# Start the UI to review before/after and pick a version per photo
+make serve
+
+# After choosing original/enhanced/discard + keep-RAW in the UI, apply them:
+# writes the chosen JPEG to photos/jpeg/ and moves or deletes each RAW
+make export
 
 # At the end of the session, wipe state:
 make reset
@@ -149,16 +149,15 @@ make reset
 | `image`           | `podman build -t raw-curator:latest -f Containerfile .` (from scratch; downloads ~5 GB of wheels) |
 | `image-warm`      | Same build, but seeds site-packages from the current `raw-curator:latest` so only changed/added packages are fetched. Minutes instead of an hour on a slow link. |
 | `download-models` | Fetches CLIP, SigLIP, Real-ESRGAN, SCUNet, CodeFormer, InsightFace into `models/` |
-| `reset`           | `raw-curator reset --force`: drops DB, empties `cache/{previews,thumbs}/` and `photos/{library,exported,jpeg}/`, runs `alembic upgrade head` |
+| `reset`           | `raw-curator reset --force`: drops DB, empties `cache/{previews,thumbs,enhanced}/` and `photos/{library,exported,jpeg}/`, runs `alembic upgrade head` |
 | `ingest`          | Walk `photos/incoming/` → DB rows + previews + thumbs           |
 | `filter`          | Blur / pHash / exposure                                         |
 | `score`           | GPU scoring: CLIP, IQA, faces (stage-by-stage)                  |
 | `cluster`         | EXIF burst + CLIP HDBSCAN + recommendation                      |
 | `run`             | `ingest → filter → score → cluster` in one shot (no UI)         |
 | `serve`           | Control Center UI on `http://0.0.0.0:8080` — runs every stage, streams logs, live resource monitor |
-| `submit`          | Apply staged decisions (file moves) outside the UI              |
-| `enhance`         | Auto Enhancement Engine: RAW → classical + AI → 16-bit TIFF for every decided photo |
-| `export-jpeg`     | RAWs (`library/`) and TIFFs (`exported/`) → share-ready JPEGs in `photos/jpeg/` |
+| `enhance`         | Auto Enhancement Engine: RAW → classical + AI → before/after render JPEGs in `cache/enhanced/` for every RAW |
+| `export`          | Apply export choices: chosen JPEG → `photos/jpeg/`, then RAW retention (keep → `library/`, else delete) |
 | `shell`           | Drop into a bash shell inside the container                     |
 | `test`            | `pytest -q` inside the container; `app/` and `tests/` are bind-mounted from the working tree, so no rebuild is needed |
 | `lint`            | `ruff check` + `ruff format --check` over `app/ tests/ scripts/` |
@@ -172,15 +171,15 @@ make reset
 
 ```
 photos/
-  incoming/      <- drop RAWs here at session start; `no` RAWs stay here until enhance deletes them
-  library/       <- `yes` RAWs (kept untouched)
-  exported/      <- enhanced 16-bit TIFFs (one per decided photo)
-  jpeg/          <- share-ready 8-bit JPEGs from `make export-jpeg` (optional)
+  incoming/      <- drop RAWs here at session start; kept RAWs move to library/ at export, others deleted
+  library/       <- RAWs kept via the keep-RAW toggle (moved here at export)
+  jpeg/          <- share-ready 8-bit JPEGs from `make export` (the chosen version per photo)
 
-cache/           <- session DB + previews + thumbs (wiped by `make reset`)
+cache/           <- session DB + previews + thumbs + enhanced renders (wiped by `make reset`)
   session.db     <- SQLite + sqlite-vec, WAL mode; includes `quality_reports`
   previews/      <- 3000 px JPEG, used by UI + AI stages
   thumbs/        <- 512 px JPEG, used by grid + pHash
+  enhanced/      <- per-RAW before/after render JPEGs (<hash>.{before,after}.jpg + .full.jpg)
 
 models/          <- model weights (~17 GB, persistent across sessions)
   hf/            <- CLIP + SigLIP HF snapshots
@@ -222,15 +221,17 @@ The most useful overrides:
 | `RAWCURATOR_ENHANCE_BACKLIT_RECOVERY` | `true`    | Auto-detects backlit scenes (dense shadows + dense highlights) and lifts the subject while protecting background highlights. Edge-preserving — no HDR halos. |
 | `RAWCURATOR_ENHANCE_BACKLIT_SHADOW_LIFT` | `0.4` | `0` disables; `~0.4` is natural; `>0.7` starts looking HDR.            |
 | `RAWCURATOR_ENHANCE_BACKLIT_HIGHLIGHT_PROTECT` | `0.15` | How aggressively the lift rolls off above ~65% luminance.        |
-| `RAWCURATOR_ENHANCE_TARGET_RES`   | `200%`        | `native` (downsample back to source) \| `200%` (keep Real-ESRGAN's 2x output — 24 MP source becomes ~96 MP, TIFFs ~4x larger on disk) \| `WIDTHxHEIGHT` (explicit pixel size). |
+| `RAWCURATOR_ENHANCE_TARGET_RES`   | `200%`        | `native` (downsample back to source) \| `200%` (keep Real-ESRGAN's 2x output — 24 MP source becomes ~96 MP, ~4x larger enhanced render JPEGs) \| `WIDTHxHEIGHT` (explicit pixel size). |
 | `RAWCURATOR_ENHANCE_SR_MIN_LONG_EDGE` | `3000`    | Real-ESRGAN runs only when enlarging (target > native) or when the source long edge is below this many pixels. |
 | `RAWCURATOR_SCUNET_TILE` / `_TILE_PAD` | `512` / `32` | SCUNet tile edge and reflective padding (px). Lower the tile (multiples of 64) on OOM. |
 | `RAWCURATOR_CODEFORMER_MAX_LONG_EDGE` | `2048`    | Long-edge cap fed to CodeFormer's face detector, which runs on the full frame. Lower on OOM. |
 | `RAWCURATOR_BURST_SECONDS`        | `2`           | EXIF timestamp window for burst grouping                                |
-| `RAWCURATOR_CPU_WORKERS`          | `os.cpu_count()` (e.g. `8` on Ryzen 3 3100) | Process pool size for ingest / filter / export-jpeg. Set lower to cap memory pressure. |
-| `RAWCURATOR_JPEG_QUALITY`         | `92`          | JPEG quality used by `make export-jpeg`                                 |
+| `RAWCURATOR_CPU_WORKERS`          | `os.cpu_count()` (e.g. `8` on Ryzen 3 3100) | Process pool size for ingest / filter. Set lower to cap memory pressure. |
+| `RAWCURATOR_JPEG_QUALITY`         | `92`          | JPEG quality used by `make export`                                      |
 | `RAWCURATOR_JPEG_LONG_EDGE`       | `0`           | `0` keeps native resolution; e.g. `4000` caps the long edge for sharing |
 | `RAWCURATOR_JPEG_PROGRESSIVE`     | `true`        | Write progressive JPEGs (better for web preview)                         |
+| `RAWCURATOR_REVIEW_LONG_EDGE`     | `3000`        | Long edge (px) of the before/after review JPEGs `make enhance` renders for the slider |
+| `RAWCURATOR_KEEP_RAW_DEFAULT`     | `true`        | Initial keep-RAW state for a freshly-created decision row (safe default: archive the RAW) |
 
 ---
 
@@ -247,13 +248,14 @@ RTX 2060 6 GB:
 | Cluster       | 14 s            |                                                      |
 | Enhance       | 47.6 s / photo  | Plan budget was 6 min/photo; well within             |
 
-Decisions exercised end-to-end under the binary routing: `yes` →
-RAW kept in `library/` + enhanced TIFF in `exported/`; `no` → enhanced
-TIFF in `exported/`, source RAW deleted from `incoming/` after the TIFF
-is written. The Auto Enhancement Engine produces a `quality_reports`
-row per photo and runs the planned classical + AI steps (real SCUNet +
-Real-ESRGAN + CodeFormer altered pixels; output SHA differs from a
-no-op TIFF).
+Export choices exercised end-to-end: `enhanced` → the chosen enhanced
+JPEG in `photos/jpeg/`; `original` → the developed-RAW JPEG in
+`photos/jpeg/`; `keep_raw` on → RAW archived in `photos/library/`, off →
+RAW deleted after the JPEG lands; `discard` → nothing written. The Auto
+Enhancement Engine produces a `quality_reports` row per photo and runs
+the planned classical + AI steps (real SCUNet + Real-ESRGAN + CodeFormer
+altered pixels; the enhanced render differs from the developed
+original).
 
 ### Known gaps
 

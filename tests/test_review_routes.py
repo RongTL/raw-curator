@@ -72,7 +72,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
             [
                 ClusterMember(cluster_id=c.id, photo_hash="aaa", rank=0),
                 ClusterMember(cluster_id=c.id, photo_hash="bbb", rank=1),
-                Decision(photo_hash="aaa", selected="yes", stars=4, favorite=1),
+                Decision(
+                    photo_hash="aaa", selected="yes", export_choice="enhanced", stars=4, favorite=1
+                ),
                 Face(photo_hash="aaa", bbox_x=1, bbox_y=2, bbox_w=3, bbox_h=4, det_score=0.9),
             ]
         )
@@ -92,11 +94,11 @@ def test_queue_sorted_by_technical_score_with_decisions(client: TestClient) -> N
     items = client.get("/api/queue/").json()
     assert [i["hash"] for i in items] == ["aaa", "bbb", "ccc"]
     assert items[0]["decision"] == {
-        "selected": "yes",
+        "export_choice": "enhanced",
+        "keep_raw": True,
         "stars": 4,
         "favorite": True,
         "applied": False,
-        "action": "none",
         "note": None,
     }
     assert items[1]["decision"] is None
@@ -136,22 +138,53 @@ def test_photo_detail_and_404(client: TestClient) -> None:
 
 
 def test_decide_stages_and_lists_pending(client: TestClient) -> None:
-    assert client.post("/api/decide/", json={"photo_hash": "bbb", "selected": "no"}).json() == {
-        "ok": True
-    }
+    assert client.post(
+        "/api/decide/", json={"photo_hash": "bbb", "export_choice": "original"}
+    ).json() == {"ok": True}
     pending = {d["photo_hash"]: d for d in client.get("/api/decide/pending").json()}
-    assert pending["bbb"]["selected"] == "no"
+    assert pending["bbb"]["export_choice"] == "original"
     assert pending["aaa"]["stars"] == 4
     assert (
-        client.post("/api/decide/", json={"photo_hash": "zzz", "selected": "yes"}).status_code
+        client.post(
+            "/api/decide/", json={"photo_hash": "zzz", "export_choice": "enhanced"}
+        ).status_code
         == 404
     )
 
 
 def test_pending_excludes_undecided_decisions(client: TestClient) -> None:
     # A row that exists but is undecided (e.g. marked then reset) is not pending.
-    client.post("/api/decide/", json={"photo_hash": "bbb", "selected": "yes"})
-    client.post("/api/decide/", json={"photo_hash": "bbb", "selected": "undecided"})
+    client.post("/api/decide/", json={"photo_hash": "bbb", "export_choice": "enhanced"})
+    client.post("/api/decide/", json={"photo_hash": "bbb", "export_choice": "undecided"})
     hashes = {d["photo_hash"] for d in client.get("/api/decide/pending").json()}
     assert "bbb" not in hashes  # undecided must not count as pending
-    assert "aaa" in hashes  # the yes decision still counts
+    assert "aaa" in hashes  # the enhanced decision still counts
+
+
+def test_decide_sets_export_choice_and_keep_raw(client: TestClient) -> None:
+    r = client.post(
+        "/api/decide/", json={"photo_hash": "bbb", "export_choice": "original", "keep_raw": False}
+    )
+    assert r.status_code == 200
+    # Verify via /pending (this task) — the photo serializer does not emit the
+    # new decision fields until Task 13.
+    pending = {d["photo_hash"]: d for d in client.get("/api/decide/pending").json()}
+    assert pending["bbb"]["export_choice"] == "original"
+    assert pending["bbb"]["keep_raw"] is False
+
+
+def test_decide_rejects_unknown_export_choice(client: TestClient) -> None:
+    r = client.post("/api/decide/", json={"photo_hash": "bbb", "export_choice": "bogus"})
+    assert r.status_code == 400
+
+
+def test_decide_all_enhanced(client: TestClient) -> None:
+    r = client.post("/api/decide/all", json={"export_choice": "enhanced"})
+    assert r.json()["staged"] >= 1
+
+
+def test_render_url_before_after() -> None:
+    from app.api.routes._urls import render_url
+
+    assert render_url("abc", "before") == "/cache/enhanced/abc.before.jpg"
+    assert render_url("abc", "after") == "/cache/enhanced/abc.after.jpg"

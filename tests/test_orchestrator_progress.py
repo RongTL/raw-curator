@@ -20,7 +20,11 @@ def env(tmp_db, tmp_path: Path, monkeypatch):
     def fake_scope():
         yield tmp_db
 
-    fake_settings = SimpleNamespace(photos=tmp_path / "photos", jpeg_subdir="jpeg")
+    fake_settings = SimpleNamespace(
+        photos=tmp_path / "photos",
+        jpeg_subdir="jpeg",
+        enhanced_dir=tmp_path / "cache" / "enhanced",
+    )
     (tmp_path / "photos" / "incoming").mkdir(parents=True)
     monkeypatch.setattr(progress, "session_scope", fake_scope)
     monkeypatch.setattr(progress, "settings", fake_settings)
@@ -70,57 +74,35 @@ def test_cluster_progress_flips_when_clusters_exist(env) -> None:
     assert progress.stage_progress("cluster") == (1, 1)
 
 
-def test_submit_progress_counts_applied_vs_decided(env) -> None:
-    sess, _ = env
-    rows = [("yes", 1), ("no", 0), ("undecided", 0)]
-    for i, (selected, applied) in enumerate(rows):
-        h = str(i) * 32
-        sess.add(Photo(hash=h, source_path=f"/x/{i}.cr3"))
-        sess.add(Decision(photo_hash=h, selected=selected, applied=applied))
-    sess.flush()
-    assert progress.stage_progress("submit") == (1, 2)
+def test_enhance_counts_after_renders(env, tmp_db) -> None:
+    from app.models import Photo
 
-
-def test_enhance_progress_counts_tiffs_vs_eligible(env) -> None:
-    sess, settings = env
-    for i, action in enumerate(["keep_and_enhance", "enhance_only", "none"]):
-        h = str(i) * 32
-        sess.add(Photo(hash=h, source_path=f"/x/{i}.cr3", file_kind="raw"))
-        sess.add(Decision(photo_hash=h, selected="yes", action=action))
-    sess.flush()
-    exported = settings.photos / "exported"
-    exported.mkdir(parents=True)
-    (exported / "0.tif").write_bytes(b"x")
+    tmp_db.add(Photo(hash="a" * 32, source_path="/x/a.CR3", file_kind="raw"))
+    tmp_db.add(Photo(hash="b" * 32, source_path="/x/b.CR3", file_kind="raw"))
+    tmp_db.commit()
+    (progress.settings.enhanced_dir).mkdir(parents=True, exist_ok=True)
+    (progress.settings.enhanced_dir / f"{'a' * 32}.after.full.jpg").write_bytes(b"x")
     assert progress.stage_progress("enhance") == (1, 2)
 
 
-def test_enhance_progress_excludes_non_raw_sources(env) -> None:
-    sess, _ = env
-    sess.add(Photo(hash="a" * 32, source_path="/x/a.cr3", file_kind="raw"))
-    sess.add(Decision(photo_hash="a" * 32, selected="yes", action="keep_and_enhance"))
-    sess.add(Photo(hash="b" * 32, source_path="/x/b.heic", file_kind="heic"))
-    sess.add(Decision(photo_hash="b" * 32, selected="no", action="enhance_only"))
-    sess.flush()
-    assert progress.stage_progress("enhance") == (0, 1)
+def test_export_counts_applied_over_keepers(env, tmp_db) -> None:
+    from app.models import Decision, Photo
 
-
-def test_export_jpeg_counts_distinct_destinations(env) -> None:
-    _, settings = env
-    # A "yes" photo: RAW kept in library/ AND its TIFF in exported/ share one
-    # jpeg destination, so total must be 1, not 2.
-    (settings.photos / "library").mkdir()
-    (settings.photos / "library" / "a.cr3").write_bytes(b"x")
-    (settings.photos / "exported").mkdir()
-    (settings.photos / "exported" / "a.tif").write_bytes(b"x")
-    (settings.photos / "jpeg").mkdir()
-    (settings.photos / "jpeg" / "a.jpg").write_bytes(b"x")
-    assert progress.stage_progress("export-jpeg") == (1, 1)
+    for h, ch, ap in [
+        ("a" * 32, "enhanced", 1),
+        ("b" * 32, "original", 0),
+        ("c" * 32, "discard", 0),
+    ]:
+        tmp_db.add(Photo(hash=h, source_path=f"/x/{h}.CR3", file_kind="raw"))
+        tmp_db.add(Decision(photo_hash=h, export_choice=ch, applied=ap))
+    tmp_db.commit()
+    assert progress.stage_progress("export") == (1, 2)  # 1 applied of 2 keepers
 
 
 def test_batch_summary_shape(env) -> None:
     sess, _ = env
     sess.add(Photo(hash="a" * 32, source_path="/x/a.cr3"))
-    sess.add(Decision(photo_hash="a" * 32, selected="yes"))
+    sess.add(Decision(photo_hash="a" * 32, export_choice="enhanced"))
     sess.flush()
     summary = progress.batch_summary()
     assert summary == {"photos": 1, "decided": 1, "incoming_files": 0}

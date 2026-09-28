@@ -21,7 +21,7 @@ from app.config import settings
 from app.db import session_scope
 from app.enhancement.classical.lens_correct import correct_lens
 from app.enhancement.denoise import ScunetModel
-from app.enhancement.develop_full import darktable_cli, read_icc_profile
+from app.enhancement.develop_full import darktable_cli
 from app.enhancement.downsample import resize_float
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
@@ -39,7 +39,6 @@ from app.enhancement.enhance_job import (
     FaceBox,
     PhotoCandidate,
     _load_linear_float,
-    may_delete_source,
     persist_plan,
     persist_report,
     persist_verdict,
@@ -47,13 +46,12 @@ from app.enhancement.enhance_job import (
 )
 from app.enhancement.face_restore import CodeFormerModel
 from app.enhancement.geometry import scale_boxes
-from app.enhancement.pack_tiff import copy_metadata, write_tiff16
+from app.enhancement.render_jpeg import render_paths, write_render
 from app.enhancement.sidecar import resolve_xmp
 from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import RealEsrganModel
 from app.enhancement.verify import Verdict, safe_plan, verify
 from app.ingest.exif import ExifData
-from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -83,7 +81,6 @@ class WorkItem:
     report: QualityReport | None = None
     plan: EnhancementPlan | None = None
     native_size: tuple[int, int] = (0, 0)
-    icc: bytes | None = None
     ai_pending: list[StepSpec] = field(default_factory=list)
     ai_scaled: bool = False
     failed: str | None = None
@@ -156,11 +153,6 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     xmp = resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
     dev = develop(src, xmp)
     try:
-        item.icc = read_icc_profile(dev)
-        if item.icc is None:
-            log.warning(
-                "developed TIFF for %s has no ICC profile; master will be untagged", src.name
-            )
         img = _load_linear_float(dev)
     finally:
         with contextlib.suppress(OSError):
@@ -188,6 +180,22 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
             )
         item.face_boxes = []
     item.faces = _face_infos(img, item.face_boxes)
+    # `img` is the developed + lens-corrected frame, before any enhancement: the true
+    # "before". Render it now (review-res + full-res) so the viewer has a baseline.
+    paths = render_paths(item.photo.hash)
+    write_render(
+        img,
+        paths["before"],
+        long_edge=settings.review_long_edge,
+        quality=settings.jpeg_quality_preview,
+    )
+    write_render(
+        img,
+        paths["before_full"],
+        long_edge=0,
+        quality=settings.jpeg_quality,
+        source=item.photo.source_path,
+    )
     item.report = score_report(measure_all(img, face_boxes=item.face_boxes or None))
     item.plan = plan_for(
         item.report,
@@ -299,18 +307,23 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
             result, verdict, plan = retry_img, retry_verdict, retry
     item.plan = plan
     persist_all(item, verdict)
-    out = settings.photos / "exported" / relative_subpath(src, settings.photos).with_suffix(".tif")
-    write_tiff16(result, out, icc=item.icc)
-    copy_metadata(src, out)
-    item.out = out
-    if may_delete_source(item.photo, out, verdict):
-        with contextlib.suppress(OSError):
-            src.unlink()
-            log.info("deleted no-RAW source after verified enhance: %s", src)
-    elif item.photo.action == "enhance_only" and verdict.degraded:
-        log.error(
-            "KEEPING source RAW for %s: result degraded (%s)", src.name, ",".join(verdict.reasons)
-        )
+    # Write the "after" (enhanced) renders. No TIFF and no RAW disposition here:
+    # the export stage moves/deletes originals once the curator picks a keep set.
+    paths = render_paths(item.photo.hash)
+    write_render(
+        result,
+        paths["after"],
+        long_edge=settings.review_long_edge,
+        quality=settings.jpeg_quality_preview,
+    )
+    write_render(
+        result,
+        paths["after_full"],
+        long_edge=0,
+        quality=settings.jpeg_quality,
+        source=item.photo.source_path,
+    )
+    item.out = paths["after_full"]
 
 
 def run_batch(

@@ -7,6 +7,7 @@ import {
 } from "./ui.js";
 import { EMPTY_FILTER, FilterBar, matchesFilter } from "./filters.js";
 import { CompareModal } from "./compare.js";
+import { BeforeAfterSlider } from "./slider.js";
 
 const PAGE_SIZE = 200;
 
@@ -24,10 +25,10 @@ function exposureHelp(flag) {
 }
 
 function DecisionBadge({ decision }) {
-  if (!decision || decision.selected === "undecided") return null;
-  const s = decision.selected;
-  const color = s === "yes" ? "bg-emerald-700" : s === "no" ? "bg-rose-800" : "bg-zinc-700";
-  return html`<span class="${color} text-xs px-1.5 py-0.5 rounded">${s}</span>`;
+  const c = decision?.export_choice;
+  if (!c || c === "undecided") return null;
+  const color = c === "original" ? "bg-sky-700" : c === "enhanced" ? "bg-emerald-700" : "bg-rose-800";
+  return html`<span class="${color} text-xs px-1.5 py-0.5 rounded">${c}</span>`;
 }
 
 // A rateable grid tile. It's a div (not a button) so the star buttons can nest
@@ -235,8 +236,7 @@ function EngineQualityPanel({ qr }) {
 
 function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated }) {
   const { data, refetch } = useQuery(() => api.photo(hash), [hash]);
-  const [showAfter, setShowAfter] = useState(false);
-  const [afterError, setAfterError] = useState(false);
+  const [viewMode, setViewMode] = useState("slider"); // "slider" | "before" | "after"
   const [showFaces, setShowFaces] = useState(false);
   const [nat, setNat] = useState(null); // preview natural size; fallback when the API has no dims
   const [noteText, setNoteText] = useState("");
@@ -258,10 +258,10 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     return () => { main.style.overflow = prev; };
   }, []);
 
-  // Reset the before/after toggle per photo (a new frame may have no enhanced
-  // version). The faces toggle is intentionally sticky across navigation, so
-  // reviewing faces across a burst doesn't need re-enabling on every frame.
-  useEffect(() => { setShowAfter(false); setAfterError(false); setNat(null); }, [hash]);
+  // Reset the view mode + measured size per photo (a new frame may have no
+  // enhanced version). The faces toggle is intentionally sticky across
+  // navigation, so reviewing faces across a burst doesn't need re-enabling.
+  useEffect(() => { setViewMode("slider"); setNat(null); }, [hash]);
   useEffect(() => { setNoteText(data?.decision?.note ?? ""); }, [hash, data?.decision?.note]);
 
   const mutate = useCallback(async (patch) => {
@@ -270,11 +270,11 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     onMutated?.();
   }, [hash, refetch, onMutated]);
 
-  // The culling flow: a yes/no decision saves, then jumps to the next photo.
-  // We advance immediately after the save lands and refresh the grid in the
-  // background — no extra keypress per photo.
-  const decideAndAdvance = useCallback(async (selected) => {
-    await api.decide({ photo_hash: hash, selected });
+  // The culling flow: an export-choice decision saves, then jumps to the next
+  // photo. We advance immediately after the save lands and refresh the grid in
+  // the background — no extra keypress per photo.
+  const chooseAndAdvance = useCallback(async (choice) => {
+    await api.decide({ photo_hash: hash, export_choice: choice });
     onMutated?.();
     onNext?.();
   }, [hash, onMutated, onNext]);
@@ -285,18 +285,21 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     ArrowRight: onNext,
     " ": onNext,
     ".": () => onNextUndecided?.(),
-    "b": () => setShowAfter((v) => !v),
     "1": () => mutate({ stars: 1 }),
     "2": () => mutate({ stars: 2 }),
     "3": () => mutate({ stars: 3 }),
     "4": () => mutate({ stars: 4 }),
     "5": () => mutate({ stars: 5 }),
     "0": () => mutate({ stars: 0 }),
-    "y": () => decideAndAdvance("yes"),
-    "n": () => decideAndAdvance("no"),
-    "u": () => mutate({ selected: "undecided" }),
+    "o": () => chooseAndAdvance("original"),
+    // No-op when there's no enhanced render (non-RAW / enhance-failed), matching
+    // the disabled button — `data.quality_report.score_q_after != null` means one exists.
+    "e": () => { if (data?.quality_report?.score_q_after != null) chooseAndAdvance("enhanced"); },
+    "x": () => chooseAndAdvance("discard"),
+    "r": () => mutate({ keep_raw: !data?.decision?.keep_raw }),
+    "b": () => setViewMode((m) => (m === "slider" ? "before" : m === "before" ? "after" : "slider")),
     "f": () => mutate({ favorite: !data?.decision?.favorite }),
-  }), [mutate, decideAndAdvance, data, onClose, onPrev, onNext, onNextUndecided]));
+  }), [mutate, chooseAndAdvance, data, onClose, onPrev, onNext, onNextUndecided]));
 
   if (!data) return createPortal(html`
     <div class="fixed inset-0 z-50 bg-zinc-950 flex items-center justify-center">
@@ -304,9 +307,9 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     </div>`, document.body);
 
   const d = data.decision;
+  // An enhanced render only exists when enhance ran and scored it. Non-RAW and
+  // enhance-failed photos have none, so the "enhanced" choice must be blocked.
   const enhanced = data.quality_report?.score_q_after != null;
-  const showingAfter = showAfter && !afterError && data.enhanced_url;
-  const imgSrc = showingAfter ? data.enhanced_url : data.preview_url;
   const faces = data.faces ?? [];
   const mp = data.width && data.height ? (data.width * data.height) / 1e6 : null;
   const exifBits = [
@@ -352,13 +355,12 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
         </div>
         <div class="flex items-center gap-2">
           <div class="flex gap-0.5 p-0.5 bg-zinc-900 border border-zinc-800 rounded text-xs">
-            <button onClick=${() => setShowAfter(false)}
-              class="px-2 py-0.5 rounded ${!showingAfter ? "bg-zinc-600 text-zinc-100" : "text-zinc-400"}">before</button>
-            <button onClick=${() => setShowAfter(true)}
-              class="px-2 py-0.5 rounded ${showingAfter ? "bg-zinc-600 text-zinc-100" : "text-zinc-400"}"
-              title=${enhanced ? "enhanced result (b)" : "enhanced JPEG (needs Export JPEG)"}>after</button>
+            ${["slider", "before", "after"].map((m) => html`
+              <button key=${m} onClick=${() => setViewMode(m)}
+                class="px-2 py-0.5 rounded ${viewMode === m ? "bg-zinc-600 text-zinc-100" : "text-zinc-400"}"
+                title=${m === "slider" ? "before/after wipe (b)" : `${m} only (b)`}>${m}</button>`)}
           </div>
-          ${faces.length > 0 && !showingAfter && html`
+          ${faces.length > 0 && viewMode === "before" && html`
             <button onClick=${() => setShowFaces((v) => !v)}
               class="px-2 py-0.5 rounded text-xs ${showFaces ? "bg-emerald-800 text-emerald-100" : "bg-zinc-800 text-zinc-400"}">
               faces (${faces.length})</button>`}
@@ -368,34 +370,36 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
 
       <div class="relative flex-1 min-h-0 flex items-center justify-center p-4 overflow-hidden
                   [container-type:size] lg:col-start-1 lg:row-start-2 lg:min-w-0">
-        ${ratioReady ? html`
-          <div class="relative"
-               style=${{ aspectRatio: `${dw} / ${dh}`, width: `min(100cqw, calc(100cqh * ${dw / dh}))` }}>
-            <img src=${imgSrc} alt=${data.filename ?? data.hash}
-                 class="absolute inset-0 w-full h-full object-contain"
-                 onLoad=${(e) => { if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight }); }}
-                 onError=${() => { if (showAfter) setAfterError(true); }} />
-            ${showFaces && !showingAfter && faces.map((f, i) => html`
-              <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
-                   style=${{
-                     left: `${(f.x / dw) * 100}%`,
-                     top: `${(f.y / dh) * 100}%`,
-                     width: `${(f.w / dw) * 100}%`,
-                     height: `${(f.h / dh) * 100}%`,
-                   }}>
-                <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
-                  ${f.score != null ? f.score.toFixed(2) : ""}</span>
-              </div>`)}
-          </div>`
-        : html`
-          <img src=${imgSrc} alt=${data.filename ?? data.hash}
-               class="max-h-full max-w-full object-contain"
-               onLoad=${(e) => { if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight }); }}
-               onError=${() => { if (showAfter) setAfterError(true); }} />`}
-        ${showAfter && afterError && html`
-          <div class="absolute inset-x-0 bottom-0 bg-amber-950/80 text-amber-200 text-xs text-center py-1">
-            No enhanced output yet — run Submit & continue (or Export JPEG).
-          </div>`}
+        ${viewMode === "slider"
+          ? html`<${BeforeAfterSlider} beforeSrc=${data.before_url} afterSrc=${data.after_url}
+                    fallbackSrc=${data.preview_url} dw=${dw} dh=${dh}
+                    onNatSize=${(w, h) => setNat({ w, h })} />`
+          : ratioReady ? html`
+            <div class="relative"
+                 style=${{ aspectRatio: `${dw} / ${dh}`, width: `min(100cqw, calc(100cqh * ${dw / dh}))` }}>
+              <img src=${viewMode === "after" ? data.after_url : data.before_url}
+                   alt=${data.filename ?? data.hash}
+                   class="absolute inset-0 w-full h-full object-contain"
+                   onLoad=${(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+                   onError=${(e) => { if (viewMode === "before") e.target.src = data.preview_url; }} />
+              ${showFaces && viewMode === "before" && faces.map((f, i) => html`
+                <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
+                     style=${{
+                       left: `${(f.x / dw) * 100}%`,
+                       top: `${(f.y / dh) * 100}%`,
+                       width: `${(f.w / dw) * 100}%`,
+                       height: `${(f.h / dh) * 100}%`,
+                     }}>
+                  <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
+                    ${f.score != null ? f.score.toFixed(2) : ""}</span>
+                </div>`)}
+            </div>`
+          : html`
+            <img src=${viewMode === "after" ? data.after_url : data.before_url}
+                 alt=${data.filename ?? data.hash}
+                 class="max-h-full max-w-full object-contain"
+                 onLoad=${(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+                 onError=${(e) => { if (viewMode === "before") e.target.src = data.preview_url; }} />`}
       </div>
 
       <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm
@@ -424,20 +428,27 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           </div>`}
 
         <div>
-          <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">decision</div>
+          <div class="text-zinc-500 text-xs uppercase tracking-wider mb-1">export choice</div>
+          <div class="flex gap-1.5 mb-2">
+            <button class="px-2 py-1 rounded ${d?.export_choice === "original" ? "bg-sky-700" : "bg-zinc-800"}"
+                    onClick=${() => chooseAndAdvance("original")}>original <span class="kbd">o</span></button>
+            <button disabled=${!enhanced}
+                    class="px-2 py-1 rounded ${d?.export_choice === "enhanced" ? "bg-emerald-700" : "bg-zinc-800"} ${!enhanced ? "opacity-40 cursor-not-allowed" : ""}"
+                    title=${enhanced ? "" : "no enhanced version for this photo"}
+                    onClick=${() => chooseAndAdvance("enhanced")}>enhanced <span class="kbd">e</span></button>
+            <button class="px-2 py-1 rounded ${d?.export_choice === "discard" ? "bg-rose-800" : "bg-zinc-800"}"
+                    onClick=${() => chooseAndAdvance("discard")}>discard <span class="kbd">x</span></button>
+          </div>
+          ${!enhanced && html`<div class="-mt-1 mb-2 text-[11px] text-zinc-500">no enhanced version</div>`}
+          <label class="flex items-center gap-2 text-xs mb-2">
+            <input type="checkbox" checked=${!!d?.keep_raw} onChange=${() => mutate({ keep_raw: !d?.keep_raw })} />
+            keep RAW <span class="kbd">r</span>
+          </label>
           <div class="flex gap-1.5 mb-2">
             ${[1, 2, 3, 4, 5].map(n => html`
               <button key=${n}
                 class="px-2 py-0.5 rounded border ${d?.stars >= n ? "bg-amber-500 text-black border-amber-500" : "border-zinc-700"}"
                 onClick=${() => mutate({ stars: n })}>${n}★</button>`)}
-          </div>
-          <div class="flex gap-1.5 mb-2">
-            <button class="px-2 py-1 rounded ${d?.selected === "yes" ? "bg-emerald-700" : "bg-zinc-800"}"
-                    onClick=${() => decideAndAdvance("yes")}>yes <span class="kbd">y</span></button>
-            <button class="px-2 py-1 rounded ${d?.selected === "no" ? "bg-rose-800" : "bg-zinc-800"}"
-                    onClick=${() => decideAndAdvance("no")}>no <span class="kbd">n</span></button>
-            <button class="px-2 py-1 rounded ${(!d || d.selected === "undecided") ? "bg-zinc-600" : "bg-zinc-800"}"
-                    onClick=${() => mutate({ selected: "undecided" })}>undecided</button>
           </div>
           <div class="flex gap-1.5">
             <button class="px-2 py-1 rounded ${d?.favorite ? "bg-pink-700" : "bg-zinc-800"}"
@@ -448,17 +459,17 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
             onBlur=${() => { if ((data.decision?.note ?? "") !== noteText) mutate({ note: noteText }); }}
             class="mt-2 w-full bg-zinc-800 rounded px-2 py-1 text-xs text-zinc-200"></textarea>
           <div class="mt-2 text-xs text-zinc-500">
-            Yes → kept in <span class="font-mono">library/</span> + enhanced TIFF.
-            No → enhanced TIFF only; original RAW deleted after enhance.
+            Exports the chosen version as a JPEG. Keep RAW → archived to
+            <span class="font-mono">library/</span>; off → RAW deleted after export.
           </div>
         </div>
 
         <div class="text-xs text-zinc-500">
           <div class="uppercase tracking-wider mb-1">shortcuts</div>
-          <div><span class="kbd">1-5</span> stars · <span class="kbd">y/n/u</span> select · <span class="kbd">f</span> fav</div>
-          <div><span class="kbd">←/→</span> nav · <span class="kbd">.</span> next undecided · <span class="kbd">b</span> before/after</div>
+          <div><span class="kbd">1-5</span> stars · <span class="kbd">o/e/x</span> export · <span class="kbd">r</span> keep RAW · <span class="kbd">f</span> fav</div>
+          <div><span class="kbd">←/→</span> nav · <span class="kbd">.</span> next undecided · <span class="kbd">b</span> view mode</div>
           <div><span class="kbd">space</span> next · <span class="kbd">esc</span> close</div>
-          <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "yes" : "no"}</div>
+          <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "✓" : "—"}</div>
           <div>captured ${data.captured_at ?? "—"}</div>
         </div>
       </div>
@@ -466,12 +477,18 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
 }
 
 function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setView,
-                   onMarkAllNo, onSubmitAndContinue, busy }) {
+                   onBulk, onSubmitAndContinue, busy }) {
   const truncated = shown != null && shown < count;
   const filtered = total != null && total !== count;
   const tabBtn = (id, label) => html`
     <button onClick=${() => setView(id)}
       class="px-3 py-1 rounded text-sm ${view === id ? "bg-zinc-700 text-zinc-100" : "bg-zinc-900 text-zinc-400"}">
+      ${label}
+    </button>`;
+  const bulkDisabled = busy || count === 0;
+  const bulkBtn = (body, label, cls) => html`
+    <button onClick=${() => onBulk(body)} disabled=${bulkDisabled}
+      class="px-2 py-1.5 rounded text-xs ${cls} disabled:bg-zinc-800 disabled:text-zinc-500">
       ${label}
     </button>`;
   return html`
@@ -494,16 +511,45 @@ function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setVi
             <option value="score">score (technical)</option>
             <option value="captured">captured</option>
           </select>`}
-        <button onClick=${onMarkAllNo} disabled=${busy || count === 0}
-                class="px-3 py-1.5 rounded bg-rose-800 hover:bg-rose-700 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
-          don't keep any RAW
-        </button>
+        <div class="flex gap-1">
+          ${bulkBtn({ export_choice: "enhanced" }, "use enhanced for all", "bg-emerald-800 hover:bg-emerald-700")}
+          ${bulkBtn({ export_choice: "original" }, "use original for all", "bg-sky-800 hover:bg-sky-700")}
+          ${bulkBtn({ export_choice: "discard" }, "discard all", "bg-rose-900 hover:bg-rose-800")}
+        </div>
+        <div class="flex gap-1">
+          ${bulkBtn({ keep_raw: true }, "keep all RAWs", "bg-zinc-700 hover:bg-zinc-600 text-zinc-100")}
+          ${bulkBtn({ keep_raw: false }, "keep no RAW", "bg-zinc-700 hover:bg-zinc-600 text-zinc-100")}
+        </div>
         <button onClick=${onSubmitAndContinue} disabled=${busy || pendingCount === 0}
                 class="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 disabled:bg-zinc-800 disabled:text-zinc-500 text-sm">
-          ${busy ? "working…" : `✔ Submit & continue (${pendingCount})`}
+          ${busy ? "working…" : `✔ Export selected (${pendingCount})`}
         </button>
       </div>
     </div>`;
+}
+
+// Batch-wide bulk actions each touch every photo, so they confirm first. The
+// wording tracks the consequence: export-choice (incl. discard) only stages a
+// choice and is non-destructive; keep-RAW off means the source RAW is deleted
+// at Export, once its JPEG exists.
+function bulkConfirmText(body) {
+  if ("export_choice" in body) {
+    const c = body.export_choice;
+    if (c === "discard") {
+      return "Discard EVERY photo? No JPEG is exported for discarded photos. " +
+        "This is non-destructive — you can change any photo before Export.";
+    }
+    return `Set EVERY photo to export its ${c} version? ` +
+      "You can still change individual photos before Export.";
+  }
+  if ("keep_raw" in body) {
+    return body.keep_raw
+      ? "Keep the source RAW for EVERY photo? Kept RAWs are archived to " +
+        "library/ at Export. You can change any photo before Export."
+      : "Set keep-RAW OFF for EVERY photo? At Export, each source RAW is " +
+        "deleted after its JPEG is written. You can still change any photo before Export.";
+  }
+  return "Apply this to EVERY photo?";
 }
 
 export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
@@ -563,15 +609,15 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
   // Counts for the filter chips, over the current view's universe.
   const filterCounts = useMemo(() => {
     const all = rawItems ?? [];
-    const c = { all: all.length, undecided: 0, yes: 0, no: 0, fav: 0, faces: 0, enhanced: 0, flagged: 0 };
+    const c = { all: all.length, undecided: 0, original: 0, enhanced: 0, discard: 0, fav: 0, faces: 0, flagged: 0 };
     for (const p of all) {
-      const s = p.decision?.selected;
-      if (!s || s === "undecided") c.undecided++;
-      else if (s === "yes") c.yes++;
-      else if (s === "no") c.no++;
+      const ch = p.decision?.export_choice;
+      if (!ch || ch === "undecided") c.undecided++;
+      else if (ch === "original") c.original++;
+      else if (ch === "enhanced") c.enhanced++;
+      else if (ch === "discard") c.discard++;
       if (p.decision?.favorite) c.fav++;
       if (p.n_faces > 0) c.faces++;
-      if (p.enhanced) c.enhanced++;
       if (p.exposure_flag && p.exposure_flag !== "ok") c.flagged++;
     }
     return c;
@@ -626,17 +672,17 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     const start = openIndex < 0 ? -1 : openIndex;
     for (let k = 1; k <= viewerHashes.length; k++) {
       const h = viewerHashes[(start + k) % viewerHashes.length];
-      const sel = byHash.get(h)?.decision?.selected;
-      if (!sel || sel === "undecided") { setOpenHash(h); return; }
+      const ch = byHash.get(h)?.decision?.export_choice;
+      if (!ch || ch === "undecided") { setOpenHash(h); return; }
     }
     setStatus("No undecided photos left in the current view.");
   }, [viewerHashes, openIndex, byHash]);
 
   const onClusterAction = useCallback(async (clusterId, mode) => {
     if (mode === "reject_all" && !confirm(
-      `Reject every photo in cluster #${clusterId}?\n\n` +
-      `Each is staged "no": the RAW is enhanced, then the source RAW is deleted ` +
-      `after Submit. You can still change this before Submit.`
+      `Discard every photo in cluster #${clusterId}?\n\n` +
+      `Each is staged "discard": no JPEG is exported for it. This is ` +
+      `non-destructive — you can change any photo before Export.`
     )) return;
     setBusy(true);
     try {
@@ -650,8 +696,8 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     }
   }, [refreshAll]);
 
-  const onCompareDecide = useCallback(async (photoHash, selected) => {
-    await api.decide({ photo_hash: photoHash, selected });
+  const onCompareDecide = useCallback(async (photoHash, choice) => {
+    await api.decide({ photo_hash: photoHash, export_choice: choice });
     refreshAll();
   }, [refreshAll]);
 
@@ -662,7 +708,10 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
       // Skip already-applied (submitted) photos, mirroring stage_cluster.
       await Promise.all(compareCluster.photos
         .filter((p) => !p.decision?.applied)
-        .map((p) => api.decide({ photo_hash: p.hash, selected: p.hash === keepHash ? "yes" : "no" })));
+        .map((p) => api.decide({
+          photo_hash: p.hash,
+          export_choice: p.hash === keepHash ? "enhanced" : "discard",
+        })));
       setStatus(`Kept ${keepHash.slice(0, 8)}; rejected the rest of the cluster.`);
       refreshAll();
     } catch (e) {
@@ -676,35 +725,31 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     const n = pending?.length ?? 0;
     const all = queueItems ?? [];
     const undecided = all.filter((p) => {
-      const s = p.decision?.selected;
-      return !s || s === "undecided";
+      const c = p.decision?.export_choice;
+      return !c || c === "undecided";
     }).length;
     const undecidedNote = undecided > 0
       ? `\n\n${undecided} photo(s) are still undecided — they will be left ` +
-        "untouched (not moved, not enhanced)."
+        "untouched (not exported)."
       : "";
     if (!confirm(
-      `Submit ${n} decision(s) and continue?\n\n` +
-      `This runs: Submit (moves files on disk) → Enhance → Export JPEG.\n` +
-      `Photos marked "no" get their source RAW deleted after enhancement.` +
+      `Export ${n} photo(s)? Runs Export: writes JPEGs and applies your ` +
+      `keep-RAW choices (RAWs with keep-RAW off are deleted after their JPEG ` +
+      `is written).` +
       undecidedNote
     )) return;
     onSubmitAndContinue();
   }, [pending, queueItems, onSubmitAndContinue]);
 
-  const onMarkAllNo = useCallback(async () => {
-    if (!confirm(
-      `Mark EVERY photo in the batch as NO? Originals will NOT be kept in ` +
-      `library — every RAW is enhanced, then the source RAW is deleted after ` +
-      `processing. You can still review before Submit.`
-    )) return;
+  const onBulk = useCallback(async (body) => {
+    if (!confirm(bulkConfirmText(body))) return;
     setBusy(true);
     try {
-      const res = await api.decideAll("no");
-      setStatus(`Marked ${res.staged} photo(s) as no.`);
+      const res = await api.decideAll(body);
+      setStatus(`Staged ${res.staged} photo(s).`);
       refreshAll();
     } catch (e) {
-      setStatus(`Mark all failed: ${e.message}`);
+      setStatus(`Bulk action failed: ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -734,7 +779,7 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
                   shown=${(view === "all" && items) ? Math.min(visibleCount, items.length) : null}
                   pendingCount=${pending?.length ?? 0}
                   sort=${sort} setSort=${setSort} view=${view} setView=${setView}
-                  onMarkAllNo=${onMarkAllNo}
+                  onBulk=${onBulk}
                   onSubmitAndContinue=${submitAndContinue}
                   busy=${busy || pipelineBusy} />
       <${FilterBar} filter=${filter} setFilter=${setFilter} counts=${filterCounts} />

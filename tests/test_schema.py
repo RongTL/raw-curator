@@ -51,3 +51,16 @@ def test_photo_phash_index(tmp_db: Session) -> None:
     idx = {i["name"] for i in insp.get_indexes("photos")}
     assert "ix_photos_phash" in idx
     assert "ix_photos_captured_at" in idx
+
+
+def test_decision_has_export_choice_and_keep_raw(tmp_db: Session) -> None:
+    from app.models import Decision, Photo
+
+    # FK: decisions.photo_hash -> photos.hash (foreign_keys=ON), so seed the parent row.
+    tmp_db.add(Photo(hash="a" * 32, source_path="/data/photos/incoming/a.cr3"))
+    tmp_db.add(Decision(photo_hash="a" * 32))
+    tmp_db.flush()
+    row = tmp_db.get(Decision, "a" * 32)
+    assert row is not None
+    assert row.export_choice == "undecided"
+    assert bool(row.keep_raw) is True

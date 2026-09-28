@@ -17,15 +17,9 @@ const LOG_KEEP_LINES = 2000;
 // stage view; starting one of these needs the explicit Run button AND this
 // spelled-out confirmation, so a stray click can't delete a RAW.
 const DESTRUCTIVE_STAGES = {
-  submit:
-    'Submit moves files on disk. Photos marked "no" have their source RAW ' +
-    "deleted after enhancement. This cannot be undone.",
-  enhance:
-    'Enhance develops every decided RAW; for "no" photos it deletes the source ' +
-    "RAW once the TIFF is written. This cannot be undone.",
-  "export-jpeg":
-    "Export JPEG develops every kept RAW and enhanced TIFF into share JPEGs " +
-    "(writes many files).",
+  export:
+    "Export writes share JPEGs and applies keep-RAW: photos with keep-RAW off " +
+    "have their source RAW deleted after the JPEG is written. This cannot be undone.",
 };
 
 function ResetModal({ onClose, onDone }) {
@@ -42,9 +36,9 @@ function ResetModal({ onClose, onDone }) {
     <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
       <div class="bg-zinc-900 rounded-lg p-5 w-96 space-y-3 text-sm">
         <div class="font-semibold text-rose-300">Start a new batch?</div>
-        <p class="text-zinc-400">This wipes the session DB, previews, and the
-          library/exported working folders (incoming photos stay). Type
-          <span class="kbd">RESET</span> to confirm.</p>
+        <p class="text-zinc-400">This wipes the session DB, the preview/thumb and
+          enhanced-render caches, and the library/exported/jpeg working folders
+          (incoming photos stay). Type <span class="kbd">RESET</span> to confirm.</p>
         <input class="w-full bg-zinc-800 rounded px-2 py-1" value=${text}
                onInput=${(e) => setText(e.target.value)} placeholder="RESET" />
         ${err && html`<div class="text-rose-400 text-xs">${err}</div>`}
@@ -153,7 +147,7 @@ function App() {
 
   const autoLabel = status?.autorun_leg != null
     ? `auto-run leg ${status.autorun_leg}…`
-    : "▶ Auto-run (ingest → cluster)";
+    : "▶ Auto-run (ingest → enhance)";
 
   return html`
     <div class="h-full flex flex-col">

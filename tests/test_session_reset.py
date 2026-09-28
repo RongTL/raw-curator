@@ -51,3 +51,11 @@ def test_end_session_reruns_migrations(batch_dirs: dict[str, Path]) -> None:
     end_session(force=True)
     calls = batch_dirs["_calls"]
     assert calls and calls[-1][:3] == ["alembic", "upgrade", "head"]  # type: ignore[index]
+
+
+def test_reset_wipes_enhanced_tier(batch_dirs: dict[str, Path]) -> None:
+    settings.enhanced_dir.mkdir(parents=True, exist_ok=True)
+    (settings.enhanced_dir / "junk.after.full.jpg").write_bytes(b"x")
+    end_session(force=True)
+    assert settings.enhanced_dir.exists()
+    assert not any(settings.enhanced_dir.iterdir())

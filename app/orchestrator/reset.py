@@ -17,7 +17,7 @@ from app.config import settings
 RESET_CONFIRM_TOKEN = "RESET"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # where alembic.ini lives
-_CACHE_TIERS = ("previews", "thumbs")
+_CACHE_TIERS = ("previews", "thumbs", "enhanced")
 _OUTPUT_ROOTS = ("library", "exported")  # settings.jpeg_subdir is appended at runtime
 
 

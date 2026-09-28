@@ -5,7 +5,7 @@ RUN := $(COMPOSE) run --rm app raw-curator
 DEV := $(COMPOSE) run --rm -v ./app:/app/app:z -v ./tests:/app/tests:z \
        -v ./pyproject.toml:/app/pyproject.toml:z app
 
-.PHONY: image image-warm reset run ingest filter score cluster submit enhance export-jpeg \
+.PHONY: image image-warm reset run ingest filter score cluster enhance export \
         serve shell test lint format typecheck download-models clean help
 
 help:
@@ -18,9 +18,8 @@ help:
 	@echo "  filter          Cheap CPU filters"
 	@echo "  score           GPU scoring (clip/iqa/faces)"
 	@echo "  cluster         Burst + phash + CLIP HDBSCAN"
-	@echo "  submit          Apply staged decisions"
-	@echo "  enhance         RAW -> AI chain -> 16-bit TIFF for every decided photo"
-	@echo "  export-jpeg     Convert library RAWs + exported TIFFs to share-ready JPEGs"
+	@echo "  enhance         RAW -> AI chain -> before/after render JPEGs for every RAW"
+	@echo "  export          Apply export choices -> share JPEGs (+ RAW retention)"
 	@echo "  run             Ingest -> filter -> score -> cluster (autopilot)"
 	@echo "  serve           Control Center UI on http://localhost:8080 (runs all stages)"
 	@echo "  shell           Drop into a shell in the app container"
@@ -58,14 +57,11 @@ score:
 cluster:
 	$(RUN) cluster
 
-submit:
-	$(RUN) submit
-
 enhance:
 	$(RUN) enhance
 
-export-jpeg:
-	$(RUN) export-jpeg
+export:
+	$(RUN) export
 
 run:
 	$(RUN) run --auto

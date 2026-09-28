@@ -3,10 +3,10 @@
 import { html, useKeyboardShortcuts, useMemo } from "./ui.js";
 
 function CompareCard({ p, onDecide, onKeepOnly, busy }) {
-  const sel = p.decision?.selected;
+  const choice = p.decision?.export_choice;
   const btn = (val, label, on) => html`
     <button disabled=${busy} onClick=${() => onDecide(p.hash, val)}
-      class="flex-1 px-2 py-1 rounded text-xs ${sel === val ? on : "bg-zinc-800 text-zinc-300"}">
+      class="flex-1 px-2 py-1 rounded text-xs ${choice === val ? on : "bg-zinc-800 text-zinc-300"}">
       ${label}
     </button>`;
   return html`
@@ -24,8 +24,9 @@ function CompareCard({ p, onDecide, onKeepOnly, busy }) {
           tech ${p.technical_score?.toFixed(2) ?? "—"} · aes ${p.aesthetic_score?.toFixed(1) ?? "—"}
         </div>
         <div class="flex gap-1">
-          ${btn("yes", "yes", "bg-emerald-700 text-white")}
-          ${btn("no", "no", "bg-rose-800 text-white")}
+          ${btn("enhanced", "enhanced", "bg-emerald-700 text-white")}
+          ${btn("original", "original", "bg-sky-700 text-white")}
+          ${btn("discard", "discard", "bg-rose-800 text-white")}
         </div>
         <!-- Deliberately muted (not a big orange button): keep-only rejects every
              other frame in the cluster, so it shouldn't be easy to hit by accident. -->

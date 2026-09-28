@@ -30,15 +30,32 @@ def test_decision_payload_none_stays_none() -> None:
     assert decision_payload(None) is None
 
 
-def test_decision_payload_coerces_int_flags_to_bool() -> None:
-    d = Decision(photo_hash="abc123", selected="yes", stars=4, favorite=1, applied=0, action="none")
+def test_decision_payload_shape() -> None:
+    d = Decision(
+        photo_hash="a" * 32, export_choice="enhanced", keep_raw=0, stars=0, favorite=0, applied=1
+    )
     out = decision_payload(d)
     assert out == {
-        "selected": "yes",
+        "export_choice": "enhanced",
+        "keep_raw": False,
+        "stars": 0,
+        "favorite": False,
+        "applied": True,
+        "note": None,
+    }
+
+
+def test_decision_payload_coerces_int_flags_to_bool() -> None:
+    d = Decision(
+        photo_hash="abc123", export_choice="enhanced", keep_raw=0, stars=4, favorite=1, applied=0
+    )
+    out = decision_payload(d)
+    assert out == {
+        "export_choice": "enhanced",
+        "keep_raw": False,
         "stars": 4,
         "favorite": True,
         "applied": False,
-        "action": "none",
         "note": None,
     }
 
@@ -56,10 +73,16 @@ def test_photo_summary_shape() -> None:
 
 
 def test_photo_summary_carries_rank_and_decision() -> None:
-    d = Decision(photo_hash="abc123", selected="no")
+    d = Decision(photo_hash="abc123", export_choice="original")
     out = photo_summary(_photo(), d, rank=2)
     assert out["rank"] == 2
-    assert out["decision"]["selected"] == "no"
+    assert out["decision"]["export_choice"] == "original"
+
+
+def test_photo_summary_has_before_after_urls() -> None:
+    out = photo_summary(_photo(), None)
+    assert out["before_url"] == "/cache/enhanced/abc123.before.jpg"
+    assert out["after_url"] == "/cache/enhanced/abc123.after.jpg"
 
 
 def test_photo_detail_extends_summary_with_exif_faces_and_report() -> None:
@@ -113,15 +136,11 @@ def test_quality_report_payload_exposes_recipe_and_verdict() -> None:
 
 
 def test_photo_summary_enhanced_fields_present_after_enhance() -> None:
-    src = f"{settings.photos}/incoming/trip/IMG_0001.CR3"
-    p = _photo(source_path=src)
-    out = photo_summary(p, None, q_after=88.0, degraded=False, n_faces=2)
+    out = photo_summary(_photo(), None, q_after=88.0, degraded=False, n_faces=2)
     assert out["enhanced"] is True
     assert out["q_after"] == 88.0
     assert out["degraded"] is False
     assert out["n_faces"] == 2
-    # enhanced_url mirrors the incoming subfolder into /jpeg with a .jpg suffix
-    assert out["enhanced_url"] == "/jpeg/trip/IMG_0001.jpg"
 
 
 def test_photo_summary_not_enhanced_without_quality_report() -> None:

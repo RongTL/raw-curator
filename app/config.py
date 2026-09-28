@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     jpeg_progressive: bool = True
     jpeg_subdir: str = "jpeg"
 
+    # Before/after review + export
+    review_long_edge: int = 3000  # long edge of the before/after review JPEGs shown in the viewer
+    keep_raw_default: bool = True  # default keep-RAW for a freshly-created decision row
+
     # UI warns when the photos volume has less free space than this (GB)
     monitor_disk_warn_free_gb: float = 50.0
 
@@ -92,6 +96,10 @@ class Settings(BaseSettings):
     @property
     def thumbs_dir(self) -> Path:
         return self.cache / "thumbs"
+
+    @property
+    def enhanced_dir(self) -> Path:
+        return self.cache / "enhanced"
 
 
 settings = Settings()

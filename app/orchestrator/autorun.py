@@ -1,7 +1,7 @@
 """Chains the stages of an auto-run leg; halts on the first failure.
 
-Leg 1 = ingest -> filter -> score -> cluster (then the human reviews).
-Leg 2 = submit -> enhance -> export-jpeg (after "Submit & continue").
+Leg 1 = ingest -> filter -> score -> cluster -> enhance (then the human reviews).
+Leg 2 = export (after "Export selected").
 """
 
 from __future__ import annotations

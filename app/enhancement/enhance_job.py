@@ -1,17 +1,17 @@
 """Enhancement entrypoint — selects candidates, then delegates to the batch runner.
 
-For every photo whose decision action is in {keep_and_enhance, enhance_only},
-`run_enhancement` warms up the GPU worker and hands the candidate snapshots to
-`app.enhancement.batch.run_batch`, which executes the Auto Enhancement Engine
-step-major over the whole batch (develop+plan+pre-AI per photo, then each AI
-model loaded once over the photos that need it, then post-AI+verify+write).
+Every RAW photo is enhanced (enhance now runs before any decision is made, so
+review can show a before/after). `run_enhancement` warms up the GPU worker and
+hands the candidate snapshots to `app.enhancement.batch.run_batch`, which
+executes the Auto Enhancement Engine step-major over the whole batch
+(develop+plan+pre-AI per photo, then each AI model loaded once over the photos
+that need it, then post-AI+verify+write).
 
 This module keeps the pieces the batch runner reuses: candidate selection
 (`_candidates`), the persistence helpers (`persist_report`/`persist_plan`/
-`persist_verdict`), the RAW-deletion gate (`may_delete_source`), the developed-
-TIFF loader (`_load_linear_float`), and the shared data records
-(`PhotoCandidate`, `EnhanceSummary`). `run_enhancement` imports `batch` lazily
-because `batch` imports from this module.
+`persist_verdict`), the developed-TIFF loader (`_load_linear_float`), and the
+shared data records (`PhotoCandidate`, `EnhanceSummary`). `run_enhancement`
+imports `batch` lazily because `batch` imports from this module.
 """
 
 from __future__ import annotations
@@ -26,11 +26,10 @@ from sqlalchemy.orm import Session
 
 from app.arrays import Array
 from app.db import session_scope
-from app.decision.rules import ENHANCE_ACTIONS
 from app.enhancement.engine.metrics import as_linear_float01
 from app.enhancement.engine.plan import EnhancementPlan, QualityReport, plan_to_json
 from app.enhancement.verify import Verdict
-from app.models import Decision, Face, Photo, PhotoQualityReport
+from app.models import Face, Photo, PhotoQualityReport
 from app.workers.gpu_worker import warmup
 
 FaceBox = tuple[int, int, int, int]  # x, y, w, h in preview pixels
@@ -43,7 +42,6 @@ class PhotoCandidate:
     hash: str
     source_path: str
     file_kind: str | None
-    action: str
     preview_path: str | None = None
     iso: int | None = None
     camera_make: str | None = None
@@ -61,7 +59,6 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                 Photo.hash,
                 Photo.source_path,
                 Photo.file_kind,
-                Decision.action,
                 Photo.preview_path,
                 Photo.iso,
                 Photo.camera_make,
@@ -69,9 +66,7 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                 Photo.lens,
                 Photo.aperture,
                 Photo.focal_length,
-            )
-            .join(Decision, Photo.hash == Decision.photo_hash)
-            .where(Decision.action.in_(ENHANCE_ACTIONS))
+            ).where(Photo.file_kind == "raw")
         ).all()
         faces_by_hash: dict[str, list[FaceBox]] = {}
         face_rows = sess.execute(
@@ -83,7 +78,6 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
             digest,
             source_path,
             file_kind,
-            action,
             preview_path,
             iso,
             camera_make,
@@ -98,7 +92,6 @@ def _candidates() -> list[tuple[PhotoCandidate, list[FaceBox]]]:
                         hash=digest,
                         source_path=source_path,
                         file_kind=file_kind,
-                        action=action,
                         preview_path=preview_path,
                         iso=iso,
                         camera_make=camera_make,
@@ -144,10 +137,6 @@ def persist_verdict(sess: Session, photo_hash: str, verdict: Verdict) -> None:
     row.verify_json = verdict.to_json()
     row.score_q_after = verdict.q_after
     row.degraded = verdict.degraded
-
-
-def may_delete_source(photo: PhotoCandidate, out: Path, verdict: Verdict) -> bool:
-    return photo.action == "enhance_only" and out.exists() and not verdict.degraded
 
 
 def _load_linear_float(tiff_path: Path) -> Array:

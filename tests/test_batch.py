@@ -7,9 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 import tifffile
+from PIL import Image
 
 from app.config import settings
-from app.enhancement import batch
+from app.enhancement import batch, render_jpeg
 from app.enhancement.engine.plan import EnhancementPlan, StepSpec
 from app.enhancement.enhance_job import PhotoCandidate
 from tests.test_enhance_job import _report
@@ -82,7 +83,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def candidate(name: str) -> tuple[PhotoCandidate, list]:
         p = tmp_path / "photos" / "incoming" / name
         p.write_bytes(b"raw")
-        return PhotoCandidate(name, str(p), "raw", "keep_and_enhance"), []
+        return PhotoCandidate(name, str(p), "raw"), []
 
     return tmp_path, fake_develop, candidate
 
@@ -101,18 +102,34 @@ def test_models_load_once_for_the_whole_batch(env, monkeypatch: pytest.MonkeyPat
     assert FakeModel.loads == 2  # scunet once, esrgan once, never codeformer
     assert FakeModel.applies.count("scunet") == 3
     assert not list((tmp_path / "cache" / "enhance").glob("*.npy"))
-    assert sorted(p.name for p in (tmp_path / "photos" / "exported").glob("*.tif")) == [
-        "A.tif",
-        "B.tif",
-        "C.tif",
-    ]
+    for name in ("A.CR3", "B.CR3", "C.CR3"):
+        assert render_jpeg.render_paths(name)["after_full"].exists()
+    assert not (tmp_path / "photos" / "exported").exists()  # no TIFF written anymore
+
+
+def test_phase1_and_phase3_write_renders_not_tiff(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A finished item writes before/after JPEGs under enhanced_dir and no TIFF.
+
+    `_phase1` writes the developed "before" renders and `_phase3` the enhanced
+    "after" renders; the export stage (not batch) now owns TIFFs and RAW moves.
+    """
+    tmp_path, fake_develop, candidate = env
+    # No AI steps: exercise the pure develop -> pre/post -> render path.
+    monkeypatch.setattr(batch, "plan_for", lambda report, **kw: _forced_plan(()))
+    photo, faces = candidate("R.CR3")
+    summary = batch.run_batch([(photo, faces)], develop=fake_develop)
+    assert summary.enhanced == 1
+    paths = render_jpeg.render_paths(photo.hash)
+    assert paths["before"].exists() and paths["before_full"].exists()  # from _phase1
+    assert paths["after"].exists() and paths["after_full"].exists()  # from _phase3
+    assert not (tmp_path / "photos" / "exported").exists()  # no TIFF written
 
 
 def test_one_failing_develop_does_not_stop_the_batch(env) -> None:
     tmp_path, fake_develop, candidate = env
     summary = batch.run_batch([candidate("BAD.CR3"), candidate("OK.CR3")], develop=fake_develop)
     assert (summary.enhanced, summary.failed) == (1, 1)
-    assert (tmp_path / "photos" / "exported" / "OK.tif").exists()
+    assert render_jpeg.render_paths("OK.CR3")["after_full"].exists()
     assert not list((tmp_path / "cache" / "enhance").glob("*.npy"))
 
 
@@ -125,16 +142,15 @@ def test_x2_master_lands_at_the_target_resolution(env, monkeypatch: pytest.Monke
     )
     summary = batch.run_batch([candidate("A.CR3")], develop=fake_develop)
     assert summary.enhanced == 1
-    master = tifffile.imread(tmp_path / "photos" / "exported" / "A.tif")
+    with Image.open(render_jpeg.render_paths("A.CR3")["after_full"]) as im:
+        master = np.asarray(im)
     # fixture develops a (64, 96, 3) frame; 200% target -> exactly 2x each dim.
     assert master.shape == (128, 192, 3)
 
 
 def test_missing_source_is_skipped_with_a_warning(env, caplog: pytest.LogCaptureFixture) -> None:
     tmp_path, fake_develop, _ = env
-    missing = PhotoCandidate(
-        "Z", str(tmp_path / "photos" / "incoming" / "GONE.CR3"), "raw", "keep_and_enhance"
-    )
+    missing = PhotoCandidate("Z", str(tmp_path / "photos" / "incoming" / "GONE.CR3"), "raw")
     with caplog.at_level("WARNING"):
         summary = batch.run_batch([(missing, [])], develop=fake_develop)
     assert (summary.skipped, summary.enhanced) == (1, 0)
@@ -145,7 +161,7 @@ def test_non_raw_source_is_skipped_with_a_warning(env, caplog: pytest.LogCapture
     tmp_path, fake_develop, _ = env
     p = tmp_path / "photos" / "incoming" / "S.JPG"
     p.write_bytes(b"jpeg")
-    jpeg = PhotoCandidate("S", str(p), "jpeg", "keep_and_enhance")
+    jpeg = PhotoCandidate("S", str(p), "jpeg")
     with caplog.at_level("WARNING"):
         summary = batch.run_batch([(jpeg, [])], develop=fake_develop)
     assert summary.skipped == 1
@@ -184,12 +200,14 @@ def test_model_load_failure_fails_only_its_photos(env, monkeypatch: pytest.Monke
     def cand(name: str, iso: int | None) -> tuple[PhotoCandidate, list]:
         p = tmp_path / "photos" / "incoming" / name
         p.write_bytes(b"raw")
-        return PhotoCandidate(name, str(p), "raw", "keep_and_enhance", iso=iso), []
+        return PhotoCandidate(name, str(p), "raw", iso=iso), []
 
     summary = batch.run_batch([cand("A.CR3", 100), cand("B.CR3", None)], develop=fake_develop)
     assert (summary.enhanced, summary.failed) == (1, 1)
-    assert (tmp_path / "photos" / "exported" / "B.tif").exists()
-    assert not (tmp_path / "photos" / "exported" / "A.tif").exists()
+    assert render_jpeg.render_paths("B.CR3")["after_full"].exists()
+    # A failed at the AI step, so its "after" render was never written (the phase-1
+    # "before" render may exist; only phase 3 writes the enhanced result).
+    assert not render_jpeg.render_paths("A.CR3")["after_full"].exists()
     assert not list((tmp_path / "cache" / "enhance").glob("*.npy"))
 
 
@@ -199,7 +217,7 @@ def test_preview_missing_warns_before_dropping_face_boxes(
     tmp_path, fake_develop, _ = env
     p = tmp_path / "photos" / "incoming" / "F.CR3"
     p.write_bytes(b"raw")
-    photo = PhotoCandidate("F", str(p), "raw", "keep_and_enhance", preview_path=None)
+    photo = PhotoCandidate("F", str(p), "raw", preview_path=None)
     with caplog.at_level("WARNING"):
         summary = batch.run_batch([(photo, [(10, 10, 20, 20)])], develop=fake_develop)
     assert summary.enhanced == 1
