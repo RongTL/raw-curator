@@ -1,8 +1,8 @@
-"""Bulk-stage the same decision across every photo in the batch.
+"""Bulk-stage the same choice across a cluster or the whole batch.
 
-Used by the `POST /api/decide/all` route ("don't keep any RAW" UI control).
-Operates on a caller-provided session so the route manages the transaction
-(via session_scope) and tests can drive it with a temp session.
+Used by the review header controls ("use enhanced for all", "keep no RAW", …)
+and the cluster keep-best/reject-all buttons. Operates on a caller-provided
+session so the route owns the transaction and tests drive it with a temp session.
 """
 
 from __future__ import annotations
@@ -10,22 +10,49 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
+from app.decision.export_rules import EXPORT_CHOICES
 from app.models import Decision, Photo
 
-_ALLOWED = {"yes", "no", "undecided"}
 _CLUSTER_MODES = {"keep_recommended", "reject_all", "keep_all"}
 
 
-def stage_cluster(sess: Session, cluster_id: int, mode: str) -> int:
-    """Stage decisions for every photo in one cluster, skipping applied rows.
+def _decision(sess: Session, h: str) -> Decision | None:
+    """The row to mutate, or None if it exists and is already applied (skip)."""
+    dec = sess.get(Decision, h)
+    if dec is None:
+        dec = Decision(photo_hash=h, keep_raw=int(settings.keep_raw_default))
+        sess.add(dec)
+        return dec
+    return None if dec.applied else dec
 
-    - ``keep_recommended``: the recommended photo → ``yes``, the rest → ``no``
-      (the burst-dedup shortcut: keep the best frame, drop the near-duplicates).
-    - ``keep_all`` → every frame ``yes``; ``reject_all`` → every frame ``no``.
 
-    Returns the number of decisions staged. Raises ValueError for an unknown
-    ``mode`` or an empty/unknown cluster.
+def stage_all(
+    sess: Session, *, export_choice: str | None = None, keep_raw: bool | None = None
+) -> int:
+    """Set the provided field(s) on every non-applied photo's decision.
+
+    Returns the number of rows staged. Raises ValueError for an unknown choice.
     """
+    if export_choice is not None and export_choice not in EXPORT_CHOICES:
+        raise ValueError(f"export_choice must be one of {EXPORT_CHOICES}, got {export_choice!r}")
+    staged = 0
+    for h in sess.execute(select(Photo.hash)).scalars().all():
+        dec = _decision(sess, h)
+        if dec is None:
+            continue
+        if export_choice is not None:
+            dec.export_choice = export_choice
+        if keep_raw is not None:
+            dec.keep_raw = bool(keep_raw)  # Integer-backed column; SQLAlchemy stores 0/1
+        staged += 1
+    return staged
+
+
+def stage_cluster(sess: Session, cluster_id: int, mode: str) -> int:
+    """keep_recommended: recommended→enhanced, rest→discard; reject_all: all
+    discard; keep_all: all enhanced. Skips applied rows. Raises ValueError for
+    an unknown mode or empty cluster."""
     if mode not in _CLUSTER_MODES:
         raise ValueError(f"mode must be one of {sorted(_CLUSTER_MODES)}, got {mode!r}")
     rows = sess.execute(
@@ -36,37 +63,14 @@ def stage_cluster(sess: Session, cluster_id: int, mode: str) -> int:
     staged = 0
     for h, is_recommended in rows:
         if mode == "keep_all":
-            selected = "yes"
+            choice = "enhanced"
         elif mode == "reject_all":
-            selected = "no"
+            choice = "discard"
         else:  # keep_recommended
-            selected = "yes" if is_recommended else "no"
-        dec = sess.get(Decision, h)
+            choice = "enhanced" if is_recommended else "discard"
+        dec = _decision(sess, h)
         if dec is None:
-            sess.add(Decision(photo_hash=h, selected=selected))
-            staged += 1
-        elif not dec.applied:
-            dec.selected = selected
-            staged += 1
-    return staged
-
-
-def stage_all(sess: Session, selected: str) -> int:
-    """Set ``Decision.selected = selected`` for every photo, skipping rows
-    already applied (submitted). Returns the number of decisions staged
-    (created or updated). Raises ValueError for an unknown ``selected``.
-    """
-    if selected not in _ALLOWED:
-        raise ValueError(f"selected must be one of {sorted(_ALLOWED)}, got {selected!r}")
-
-    staged = 0
-    hashes = sess.execute(select(Photo.hash)).scalars().all()
-    for h in hashes:
-        dec = sess.get(Decision, h)
-        if dec is None:
-            sess.add(Decision(photo_hash=h, selected=selected))
-            staged += 1
-        elif not dec.applied:
-            dec.selected = selected
-            staged += 1
+            continue
+        dec.export_choice = choice
+        staged += 1
     return staged
