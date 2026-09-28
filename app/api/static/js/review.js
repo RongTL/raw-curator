@@ -314,7 +314,7 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
 
       <div ref=${wrapRef} class="flex-1 relative flex items-center justify-center overflow-hidden p-4 min-h-0">
         <img ref=${imgRef} src=${imgSrc} alt=${data.hash}
-             class="max-h-full max-w-full object-contain"
+             class="max-h-full max-w-full min-h-0 min-w-0 object-contain"
              onLoad=${(e) => {
                if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight });
                measure();
