@@ -36,9 +36,9 @@ function ResetModal({ onClose, onDone }) {
     <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
       <div class="bg-zinc-900 rounded-lg p-5 w-96 space-y-3 text-sm">
         <div class="font-semibold text-rose-300">Start a new batch?</div>
-        <p class="text-zinc-400">This wipes the session DB, previews, and the
-          library/exported working folders (incoming photos stay). Type
-          <span class="kbd">RESET</span> to confirm.</p>
+        <p class="text-zinc-400">This wipes the session DB, the preview/thumb and
+          enhanced-render caches, and the library/exported/jpeg working folders
+          (incoming photos stay). Type <span class="kbd">RESET</span> to confirm.</p>
         <input class="w-full bg-zinc-800 rounded px-2 py-1" value=${text}
                onInput=${(e) => setText(e.target.value)} placeholder="RESET" />
         ${err && html`<div class="text-rose-400 text-xs">${err}</div>`}

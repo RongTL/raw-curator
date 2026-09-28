@@ -45,14 +45,18 @@ def stage_decision(d: DecisionIn) -> dict[str, bool]:
         if existing is None:
             existing = Decision(photo_hash=d.photo_hash, keep_raw=int(settings.keep_raw_default))
             sess.add(existing)
+        # An already-exported row is locked for export_choice/keep_raw (mirrors the
+        # applied-skip in bulk._decision); stars/favorite/note may still change.
+        applied = bool(existing.applied)
         if d.export_choice is not None:
             choice = normalize_choice(d.export_choice)
             if choice is None:
                 raise HTTPException(
                     status_code=400, detail=f"unknown export_choice {d.export_choice!r}"
                 )
-            existing.export_choice = choice
-        if d.keep_raw is not None:
+            if not applied:
+                existing.export_choice = choice
+        if d.keep_raw is not None and not applied:
             existing.keep_raw = bool(d.keep_raw)  # Integer-backed column; stores 0/1
         if d.stars is not None:
             existing.stars = d.stars

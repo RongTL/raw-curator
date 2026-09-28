@@ -2,7 +2,7 @@
 // draggable handle. Pure CSS clip-path, pointer-driven; no external deps.
 import { html, useRef, useState } from "./ui.js";
 
-export function BeforeAfterSlider({ beforeSrc, afterSrc, fallbackSrc, dw, dh }) {
+export function BeforeAfterSlider({ beforeSrc, afterSrc, fallbackSrc, dw, dh, onNatSize }) {
   const [pos, setPos] = useState(50);        // handle position, % from left
   const [afterOk, setAfterOk] = useState(true);
   const [beforeSrcState, setBeforeSrcState] = useState(beforeSrc);
@@ -29,6 +29,7 @@ export function BeforeAfterSlider({ beforeSrc, afterSrc, fallbackSrc, dw, dh }) 
          onPointerDown=${onDown}>
       <img src=${beforeSrcState} alt="before"
            class="absolute inset-0 w-full h-full object-contain pointer-events-none"
+           onLoad=${(e) => onNatSize?.(e.target.naturalWidth, e.target.naturalHeight)}
            onError=${() => fallbackSrc && setBeforeSrcState(fallbackSrc)} />
       ${afterOk && afterSrc && html`
         <img src=${afterSrc} alt="after"

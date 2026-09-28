@@ -292,7 +292,9 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     "5": () => mutate({ stars: 5 }),
     "0": () => mutate({ stars: 0 }),
     "o": () => chooseAndAdvance("original"),
-    "e": () => chooseAndAdvance("enhanced"),
+    // No-op when there's no enhanced render (non-RAW / enhance-failed), matching
+    // the disabled button — `data.quality_report.score_q_after != null` means one exists.
+    "e": () => { if (data?.quality_report?.score_q_after != null) chooseAndAdvance("enhanced"); },
     "x": () => chooseAndAdvance("discard"),
     "r": () => mutate({ keep_raw: !data?.decision?.keep_raw }),
     "b": () => setViewMode((m) => (m === "slider" ? "before" : m === "before" ? "after" : "slider")),
@@ -305,6 +307,9 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
     </div>`, document.body);
 
   const d = data.decision;
+  // An enhanced render only exists when enhance ran and scored it. Non-RAW and
+  // enhance-failed photos have none, so the "enhanced" choice must be blocked.
+  const enhanced = data.quality_report?.score_q_after != null;
   const faces = data.faces ?? [];
   const mp = data.width && data.height ? (data.width * data.height) / 1e6 : null;
   const exifBits = [
@@ -367,7 +372,8 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
                   [container-type:size] lg:col-start-1 lg:row-start-2 lg:min-w-0">
         ${viewMode === "slider"
           ? html`<${BeforeAfterSlider} beforeSrc=${data.before_url} afterSrc=${data.after_url}
-                    fallbackSrc=${data.preview_url} dw=${dw} dh=${dh} />`
+                    fallbackSrc=${data.preview_url} dw=${dw} dh=${dh}
+                    onNatSize=${(w, h) => setNat({ w, h })} />`
           : ratioReady ? html`
             <div class="relative"
                  style=${{ aspectRatio: `${dw} / ${dh}`, width: `min(100cqw, calc(100cqh * ${dw / dh}))` }}>
@@ -426,11 +432,14 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           <div class="flex gap-1.5 mb-2">
             <button class="px-2 py-1 rounded ${d?.export_choice === "original" ? "bg-sky-700" : "bg-zinc-800"}"
                     onClick=${() => chooseAndAdvance("original")}>original <span class="kbd">o</span></button>
-            <button class="px-2 py-1 rounded ${d?.export_choice === "enhanced" ? "bg-emerald-700" : "bg-zinc-800"}"
+            <button disabled=${!enhanced}
+                    class="px-2 py-1 rounded ${d?.export_choice === "enhanced" ? "bg-emerald-700" : "bg-zinc-800"} ${!enhanced ? "opacity-40 cursor-not-allowed" : ""}"
+                    title=${enhanced ? "" : "no enhanced version for this photo"}
                     onClick=${() => chooseAndAdvance("enhanced")}>enhanced <span class="kbd">e</span></button>
             <button class="px-2 py-1 rounded ${d?.export_choice === "discard" ? "bg-rose-800" : "bg-zinc-800"}"
                     onClick=${() => chooseAndAdvance("discard")}>discard <span class="kbd">x</span></button>
           </div>
+          ${!enhanced && html`<div class="-mt-1 mb-2 text-[11px] text-zinc-500">no enhanced version</div>`}
           <label class="flex items-center gap-2 text-xs mb-2">
             <input type="checkbox" checked=${!!d?.keep_raw} onChange=${() => mutate({ keep_raw: !d?.keep_raw })} />
             keep RAW <span class="kbd">r</span>

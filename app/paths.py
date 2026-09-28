@@ -1,7 +1,7 @@
 """Map an absolute source path to its path relative to a known photos root.
 
-Used by enhance / export to mirror the subfolder layout found under
-photos/incoming/ into the library/, exported/, and jpeg/ output trees.
+Used by export to mirror the subfolder layout found under photos/incoming/
+into the library/ and jpeg/ output trees.
 """
 
 from __future__ import annotations

@@ -70,6 +70,22 @@ def test_enhanced_no_keep_deletes_raw_after_jpeg(wired, tmp_db) -> None:
     assert not (wired / "library" / "IMG.CR3").exists()
 
 
+def test_enhanced_without_after_render_falls_back(wired, tmp_db) -> None:
+    from app.enhancement.render_jpeg import render_paths
+
+    raw = wired / "incoming" / "IMG.CR3"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b"raw")
+    _jpeg(render_paths("h" * 32)["before_full"])  # only a before render; no after_full
+    tmp_db.add(Photo(hash="h" * 32, source_path=str(raw), file_kind="raw"))
+    tmp_db.add(Decision(photo_hash="h" * 32, export_choice="enhanced", keep_raw=1))
+    tmp_db.commit()
+
+    export_job.run_export()
+
+    assert (wired / "jpeg" / "IMG.jpg").exists()  # falls back to the before render, not skipped
+
+
 def test_original_uses_before_render(wired, tmp_db) -> None:
     from app.enhancement.render_jpeg import render_paths
 

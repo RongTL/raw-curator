@@ -36,9 +36,15 @@ class ExportSummary:
 
 
 def _source_jpeg(choice: str, photo: Photo) -> Path:
-    """Which image to encode into the share JPEG for this photo."""
+    """Which image to encode into the share JPEG for this photo.
+
+    ``enhanced`` uses the AI render, but a non-RAW or enhance-failed photo has no
+    ``after_full``; fall back to the same source ``original`` uses (developed
+    ``before_full`` if present, else the original file) so a keeper is never
+    silently skipped at export.
+    """
     paths = render_paths(photo.hash)
-    if choice == "enhanced":
+    if choice == "enhanced" and paths["after_full"].exists():
         return paths["after_full"]
     before = paths["before_full"]
     if before.exists():  # a developed RAW render
@@ -81,6 +87,8 @@ def run_export() -> ExportSummary:
                         long_edge=settings.jpeg_long_edge,
                         progressive=settings.jpeg_progressive,
                     )
+                    if not dest.exists():
+                        raise RuntimeError(f"export JPEG not written: {dest}")
                     # Retention runs only after the JPEG exists on disk.
                     raw = Path(photo.source_path)
                     if decision.keep_raw and raw.exists():

@@ -21,7 +21,7 @@ from app.config import settings
 from app.db import session_scope
 from app.enhancement.classical.lens_correct import correct_lens
 from app.enhancement.denoise import ScunetModel
-from app.enhancement.develop_full import darktable_cli, read_icc_profile
+from app.enhancement.develop_full import darktable_cli
 from app.enhancement.downsample import resize_float
 from app.enhancement.engine import measure_all, score_report
 from app.enhancement.engine.decision import plan_from_report
@@ -81,7 +81,6 @@ class WorkItem:
     report: QualityReport | None = None
     plan: EnhancementPlan | None = None
     native_size: tuple[int, int] = (0, 0)
-    icc: bytes | None = None
     ai_pending: list[StepSpec] = field(default_factory=list)
     ai_scaled: bool = False
     failed: str | None = None
@@ -154,11 +153,6 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     xmp = resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
     dev = develop(src, xmp)
     try:
-        item.icc = read_icc_profile(dev)
-        if item.icc is None:
-            log.warning(
-                "developed TIFF for %s has no ICC profile; master will be untagged", src.name
-            )
         img = _load_linear_float(dev)
     finally:
         with contextlib.suppress(OSError):

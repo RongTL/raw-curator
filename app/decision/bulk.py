@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.decision.export_rules import EXPORT_CHOICES
+from app.decision.export_rules import EXPORT_CHOICES, normalize_choice
 from app.models import Decision, Photo
 
 _CLUSTER_MODES = {"keep_recommended", "reject_all", "keep_all"}
@@ -34,8 +34,15 @@ def stage_all(
 
     Returns the number of rows staged. Raises ValueError for an unknown choice.
     """
-    if export_choice is not None and export_choice not in EXPORT_CHOICES:
-        raise ValueError(f"export_choice must be one of {EXPORT_CHOICES}, got {export_choice!r}")
+    if export_choice is None and keep_raw is None:
+        return 0  # nothing to stage — don't materialize empty undecided rows
+    if export_choice is not None:
+        normalized = normalize_choice(export_choice)  # canonicalize mixed-case input
+        if normalized is None:
+            raise ValueError(
+                f"export_choice must be one of {EXPORT_CHOICES}, got {export_choice!r}"
+            )
+        export_choice = normalized
     staged = 0
     for h in sess.execute(select(Photo.hash)).scalars().all():
         dec = _decision(sess, h)
