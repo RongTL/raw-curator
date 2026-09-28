@@ -53,6 +53,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=cache,target=/root/.cache/pypoetry \
     poetry install --only-root
 
+# liblensfun 0.3.4's bundled DB predates some lenses (e.g. Canon RF 24mm F1.8
+# MACRO IS STM); drop in extra version-1 calibration files so both the darktable
+# GUI and the darktable-cli develop step resolve them. lensfun scans every *.xml
+# in this dir. See app/enhancement/darktable/lensfun/README.md.
+COPY app/enhancement/darktable/lensfun/*.xml /usr/share/lensfun/version_1/
+
 ENV RAWCURATOR_CACHE=/data/cache \
     RAWCURATOR_MODELS=/data/models \
     RAWCURATOR_PHOTOS=/data/photos \
