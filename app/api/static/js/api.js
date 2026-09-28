@@ -30,6 +30,7 @@ export const api = {
   autoRun: (leg) => post(`/api/pipeline/auto/${leg}`),
   cancelJob: () => post(`/api/pipeline/cancel`),
   logs: (after = 0) => j(`/api/pipeline/logs?after=${after}`),
+  stageLog: (stage) => j(`/api/pipeline/stage-log/${stage}`),
   resetSession: () => post(`/api/pipeline/reset`, { confirm: "RESET" }),
   // system
   systemStats: () => j(`/api/system/stats`),

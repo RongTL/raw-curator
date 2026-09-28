@@ -121,6 +121,16 @@ def logs(after: int = 0) -> dict[str, Any]:
     }
 
 
+@router.get("/stage-log/{stage_name}")
+def stage_log(stage_name: str) -> dict[str, Any]:
+    """The saved log for one stage's latest run (the live ``/logs`` tail only
+    holds the running stage, so a finished stage's output is fetched here)."""
+    if stage_name not in STAGE_BY_NAME:
+        raise HTTPException(status_code=422, detail=f"unknown stage: {stage_name}")
+    log_path, lines = get_runner().saved_log(stage_name)
+    return {"stage": stage_name, "log_path": log_path, "lines": lines}
+
+
 @router.post("/reset")
 async def reset(req: ResetRequest) -> dict[str, bool]:
     global _resetting

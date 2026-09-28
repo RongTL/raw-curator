@@ -1,14 +1,13 @@
 // StagePanel — progress + live log for the selected (or running/last-run)
 // stage, plus the Run button that actually starts it.
 import { html, useEffect, useRef, useState } from "./ui.js";
+import { api } from "./api.js";
 
 export function StagePanel({ status, log, selectedStage, onRunStage, busy }) {
   const [follow, setFollow] = useState(true);
+  const [saved, setSaved] = useState({ stage: null, lines: [] });
   const boxRef = useRef(null);
   const lines = log?.lines ?? [];
-  useEffect(() => {
-    if (follow && boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
-  }, [lines, follow]);
 
   const stages = status?.stages ?? [];
   // Which stage to show: the one the user selected, else the running one, else
@@ -21,6 +20,26 @@ export function StagePanel({ status, log, selectedStage, onRunStage, busy }) {
     .pop();
   const stageName = selectedStage ?? log?.stage ?? status?.running ?? lastStarted?.name;
   const stage = stages.find((s) => s.name === stageName);
+
+  // The live tail (/logs) only ever holds the stage whose run is current — it's
+  // cleared when the next stage starts. For any other stage, fetch its saved log
+  // file so a finished (or earlier) stage still shows its output when selected.
+  const isLive = Boolean(stage) && log?.stage === stage.name;
+  useEffect(() => {
+    if (!stage || isLive) return undefined;
+    let cancelled = false;
+    api
+      .stageLog(stage.name)
+      .then((r) => { if (!cancelled) setSaved({ stage: stage.name, lines: r.lines }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [stage?.name, isLive, stage?.state]);
+  const displayLines = isLive ? lines : saved.stage === stage?.name ? saved.lines : [];
+
+  useEffect(() => {
+    if (follow && boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
+  }, [displayLines, follow]);
+
   if (!stage) {
     return html`<div class="p-10 text-zinc-500 text-sm">
       No stage has run yet. Click a stage above to view it, then press Run — or
@@ -29,8 +48,6 @@ export function StagePanel({ status, log, selectedStage, onRunStage, busy }) {
   }
 
   const isRunning = status?.running === stage.name;
-  // The live log is for one run at a time; only show it against the stage it belongs to.
-  const stageLines = log?.stage === stage.name ? lines : [];
   const p = stage.progress ?? {};
   const pctv = p.total ? Math.min(100, Math.round((p.current / p.total) * 100)) : null;
   const runLabel = isRunning
@@ -67,17 +84,17 @@ export function StagePanel({ status, log, selectedStage, onRunStage, busy }) {
           <span class="font-mono">${log?.log_path ?? "cache/logs/"}</span>
         </div>`}
       <div class="flex items-center gap-2 text-xs text-zinc-500">
-        <span>live log</span>
+        <span>${isLive ? "live log" : "saved log"}</span>
         <button class="px-1.5 rounded ${follow ? "bg-zinc-700" : "bg-zinc-900"}"
                 onClick=${() => setFollow(!follow)}>auto-scroll ${follow ? "on" : "off"}</button>
       </div>
       <div ref=${boxRef}
            class="flex-1 overflow-auto bg-black/60 rounded p-2 font-mono text-[11px] leading-4 text-zinc-300">
-        ${stageLines.length === 0
+        ${displayLines.length === 0
           ? html`<div class="text-zinc-600">${isRunning
               ? "waiting for log output…"
-              : "No live log for this stage — it isn't running. Press Run to start it."}</div>`
-          : stageLines.map((l, i) => html`<div key=${i}>${l}</div>`)}
+              : "No log for this stage yet — run it here (Run / Auto-run) to capture its output."}</div>`
+          : displayLines.map((l, i) => html`<div key=${i}>${l}</div>`)}
       </div>
     </div>`;
 }

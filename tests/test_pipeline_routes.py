@@ -204,3 +204,24 @@ def test_system_stats_shape(client: TestClient, monkeypatch, tmp_path: Path) -> 
     payload = client.get("/api/system/stats").json()
     assert payload["current"]["gpu"] is None
     assert "warnings" in payload
+
+
+def test_stage_log_returns_saved_log(client: TestClient) -> None:
+    client.post("/api/pipeline/run/ingest")
+    wait_for_state(client, "ingest", "done")
+    r = client.get("/api/pipeline/stage-log/ingest")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stage"] == "ingest"
+    assert body["lines"] == ["ok"]
+    assert body["log_path"] is not None
+
+
+def test_stage_log_unknown_stage_is_422(client: TestClient) -> None:
+    assert client.get("/api/pipeline/stage-log/bogus").status_code == 422
+
+
+def test_stage_log_missing_returns_empty(client: TestClient) -> None:
+    r = client.get("/api/pipeline/stage-log/fail")
+    assert r.status_code == 200
+    assert r.json()["lines"] == []
