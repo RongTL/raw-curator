@@ -10,10 +10,27 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+from starlette.types import Scope
 
 from app.api.deps import get_monitor, get_runner
 from app.api.routes import cluster, decide, photo, pipeline, queue, system
 from app.config import settings
+
+
+class _NoStoreStatic(StaticFiles):
+    """Static files served with ``Cache-Control: no-store``.
+
+    The UI is CDN-React with no build step, so its module filenames never change.
+    Without this a browser caches an old ``review.js`` across image rebuilds and
+    the running UI silently lags the code. The assets are tiny, so never caching
+    them costs nothing and keeps a rebuilt UI in sync.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 @asynccontextmanager
@@ -47,10 +64,11 @@ app.mount(
     name="jpeg",
 )
 
-# Static SPA assets bundled in the image.
+# Static SPA assets bundled in the image. Served no-store (see _NoStoreStatic) so a
+# rebuilt UI isn't masked by a browser-cached module.
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.exists():
-    app.mount("/ui", StaticFiles(directory=str(_STATIC_DIR)), name="ui")
+    app.mount("/ui", _NoStoreStatic(directory=str(_STATIC_DIR)), name="ui")
 
 
 @app.get("/api/health")
@@ -60,4 +78,4 @@ def health() -> dict[str, bool]:
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(_STATIC_DIR / "index.html")
+    return FileResponse(_STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
