@@ -34,3 +34,13 @@ def jpeg_url(source_path: str | None) -> str | None:
         return None
     rel = relative_subpath(Path(source_path), settings.photos).with_suffix(".jpg")
     return "/jpeg/" + str(rel)
+
+
+def render_url(photo_hash: str, which: str) -> str:
+    """Browser URL for a before/after review JPEG (may 404 until enhance runs).
+
+    ``which`` is ``before`` or ``after``; enhance writes both under
+    ``cache/enhanced/`` (mounted at ``/cache``), so the URL is derived and
+    returned even before the file exists.
+    """
+    return f"/cache/enhanced/{photo_hash}.{which}.jpg"
