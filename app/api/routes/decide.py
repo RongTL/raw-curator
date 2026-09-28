@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.db import session_scope
-from app.decision.bulk import stage_all
+from app.decision.bulk import stage_all, stage_cluster
 from app.models import Decision, Photo
 
 router = APIRouter()
@@ -25,6 +25,11 @@ class DecisionIn(BaseModel):
 
 class BulkDecisionIn(BaseModel):
     selected: str
+
+
+class ClusterDecisionIn(BaseModel):
+    cluster_id: int
+    mode: str
 
 
 @router.post("/")
@@ -52,6 +57,16 @@ def stage_all_decisions(d: BulkDecisionIn) -> dict[str, Any]:
     try:
         with session_scope() as sess:
             staged = stage_all(sess, d.selected)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "staged": staged}
+
+
+@router.post("/cluster")
+def stage_cluster_decisions(d: ClusterDecisionIn) -> dict[str, Any]:
+    try:
+        with session_scope() as sess:
+            staged = stage_cluster(sess, d.cluster_id, d.mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "staged": staged}

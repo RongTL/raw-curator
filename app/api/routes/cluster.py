@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.serializers import photo_summary
 from app.db import session_scope
-from app.models import Cluster, ClusterMember, Decision, Photo
+from app.models import Cluster, ClusterMember, Decision, Face, Photo, PhotoQualityReport
 
 router = APIRouter()
 
@@ -19,14 +19,21 @@ def list_clusters() -> list[dict[str, Any]]:
     """Every cluster + a synthetic 'unclustered' bucket for photos with no cluster_id."""
     out: list[dict[str, Any]] = []
     with session_scope() as sess:
+        face_counts: dict[str, int] = {
+            h: n
+            for h, n in sess.execute(
+                select(Face.photo_hash, func.count()).group_by(Face.photo_hash)
+            ).all()
+        }
         clusters = (
             sess.execute(select(Cluster).order_by(Cluster.size.desc(), Cluster.id)).scalars().all()
         )
         for c in clusters:
             rows = sess.execute(
-                select(ClusterMember, Photo, Decision)
+                select(ClusterMember, Photo, Decision, PhotoQualityReport)
                 .join(Photo, Photo.hash == ClusterMember.photo_hash)
                 .outerjoin(Decision, Decision.photo_hash == Photo.hash)
+                .outerjoin(PhotoQualityReport, PhotoQualityReport.photo_hash == Photo.hash)
                 .where(ClusterMember.cluster_id == c.id)
                 .order_by(ClusterMember.rank)
             ).all()
@@ -36,12 +43,16 @@ def list_clusters() -> list[dict[str, Any]]:
                     "kind": c.kind,
                     "label": c.label,
                     "size": c.size,
-                    "photos": [photo_summary(p, d, rank=m.rank) for m, p, d in rows],
+                    "photos": [
+                        photo_summary(p, d, rank=m.rank, qr=qr, n_faces=face_counts.get(p.hash, 0))
+                        for m, p, d, qr in rows
+                    ],
                 }
             )
         unclustered = sess.execute(
-            select(Photo, Decision)
+            select(Photo, Decision, PhotoQualityReport)
             .outerjoin(Decision, Decision.photo_hash == Photo.hash)
+            .outerjoin(PhotoQualityReport, PhotoQualityReport.photo_hash == Photo.hash)
             .where(Photo.cluster_id.is_(None))
             .order_by(Photo.technical_score.desc().nulls_last())
         ).all()
@@ -52,7 +63,10 @@ def list_clusters() -> list[dict[str, Any]]:
                     "kind": "unclustered",
                     "label": None,
                     "size": len(unclustered),
-                    "photos": [photo_summary(p, d) for p, d in unclustered],
+                    "photos": [
+                        photo_summary(p, d, qr=qr, n_faces=face_counts.get(p.hash, 0))
+                        for p, d, qr in unclustered
+                    ],
                 }
             )
     return out

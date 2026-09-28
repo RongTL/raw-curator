@@ -5,6 +5,8 @@ import {
   Fragment, html, useCallback, useEffect, useMemo, useRef, useState,
   useKeyboardShortcuts, useQuery,
 } from "./ui.js";
+import { EMPTY_FILTER, FilterBar, matchesFilter } from "./filters.js";
+import { CompareModal } from "./compare.js";
 
 const PAGE_SIZE = 200;
 
@@ -34,6 +36,9 @@ function PhotoTile({ photo, onClick, highlight = false }) {
         ${photo.is_recommended && html`<span class="bg-amber-500/90 text-black text-xs px-1.5 py-0.5 rounded font-semibold">REC</span>`}
         ${photo.decision?.applied && html`<span class="bg-blue-700 text-xs px-1.5 py-0.5 rounded">applied</span>`}
         <${DecisionBadge} decision=${photo.decision} />
+        ${photo.enhanced && html`<span class="bg-emerald-600/90 text-black text-[10px] px-1 py-0.5 rounded font-semibold"
+          title=${`enhanced${photo.q_after != null ? ` · Q ${Math.round(photo.q_after)}` : ""}`}>✓</span>`}
+        ${photo.degraded && html`<span class="bg-amber-600/90 text-black text-[10px] px-1 py-0.5 rounded font-semibold" title="verify: degraded">!</span>`}
       </div>
       <div class="absolute top-1 right-1">
         <${Stars} value=${photo.decision?.stars} />
@@ -89,7 +94,7 @@ function PagedGrid({ items, visible, onMore, onSelect }) {
     </${Fragment}>`;
 }
 
-function ClusterSection({ cluster, onSelect }) {
+function ClusterSection({ cluster, onSelect, onClusterAction, onCompare, busy }) {
   const isUnclustered = cluster.kind === "unclustered";
   const headerColor = isUnclustered ? "text-zinc-500" : "text-zinc-200";
   const kindBadge = isUnclustered ? null : html`
@@ -99,6 +104,7 @@ function ClusterSection({ cluster, onSelect }) {
   const title = isUnclustered
     ? "Unclustered (singletons)"
     : `Cluster #${cluster.id}`;
+  const multi = cluster.photos.length > 1;
   return html`
     <section class="border-t border-zinc-800">
       <div class="flex items-center gap-3 px-3 py-2 sticky top-0 bg-zinc-950/95 backdrop-blur z-10">
@@ -106,6 +112,16 @@ function ClusterSection({ cluster, onSelect }) {
         ${kindBadge}
         <span class="text-xs text-zinc-500">${cluster.size} photo${cluster.size === 1 ? "" : "s"}</span>
         ${cluster.label && html`<span class="text-xs text-zinc-400">${cluster.label}</span>`}
+        ${!isUnclustered && html`
+          <div class="ml-auto flex gap-1.5">
+            <button disabled=${busy} onClick=${() => onClusterAction(cluster.id, "keep_recommended")}
+              class="px-2 py-0.5 rounded text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-40"
+              title="keep the recommended frame, reject the rest">keep best</button>
+            <button disabled=${busy} onClick=${() => onClusterAction(cluster.id, "reject_all")}
+              class="px-2 py-0.5 rounded text-xs bg-rose-900 hover:bg-rose-800 disabled:opacity-40">reject all</button>
+            ${multi && html`<button disabled=${busy} onClick=${() => onCompare(cluster)}
+              class="px-2 py-0.5 rounded text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40">compare</button>`}
+          </div>`}
       </div>
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 px-2 pb-3">
         ${cluster.photos.map(p => html`
@@ -118,13 +134,14 @@ function ClusterSection({ cluster, onSelect }) {
     </section>`;
 }
 
-function ClusterView({ clusters, onSelect }) {
+function ClusterView({ clusters, onSelect, onClusterAction, onCompare, busy }) {
   if (!clusters || clusters.length === 0) {
     return html`<div class="p-8 text-zinc-500">No clusters yet. Run the Cluster stage above.</div>`;
   }
   return html`
     <div>
-      ${clusters.map(c => html`<${ClusterSection} key=${c.id} cluster=${c} onSelect=${onSelect} />`)}
+      ${clusters.map(c => html`<${ClusterSection} key=${c.id} cluster=${c} onSelect=${onSelect}
+        onClusterAction=${onClusterAction} onCompare=${onCompare} busy=${busy} />`)}
     </div>`;
 }
 
@@ -151,6 +168,8 @@ function EngineQualityPanel({ qr }) {
         <div>noise ${score(qr.score_noise)}</div>
         <div class="text-zinc-500">σ ${num(qr.luma_noise)}</div>
       </div>
+      ${qr.degraded && qr.verify?.reasons?.length ? html`
+        <div class="mt-1 text-xs text-rose-300">verify degraded: ${qr.verify.reasons.join(", ")}</div>` : ""}
       <details class="mt-2 text-xs text-zinc-500">
         <summary class="cursor-pointer text-zinc-400">all metrics</summary>
         <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
@@ -184,8 +203,17 @@ function EngineQualityPanel({ qr }) {
     </div>`;
 }
 
-function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
+function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated }) {
   const { data, refetch } = useQuery(() => api.photo(hash), [hash]);
+  const [showAfter, setShowAfter] = useState(false);
+  const [afterError, setAfterError] = useState(false);
+  const [showFaces, setShowFaces] = useState(false);
+  const [nat, setNat] = useState(null); // preview natural size, for face overlay
+  const [noteText, setNoteText] = useState("");
+
+  // Reset per-photo view state when navigating to a different frame.
+  useEffect(() => { setShowAfter(false); setAfterError(false); setShowFaces(false); }, [hash]);
+  useEffect(() => { setNoteText(data?.decision?.note ?? ""); }, [hash, data?.decision?.note]);
 
   const mutate = useCallback(async (patch) => {
     await api.decide({ photo_hash: hash, ...patch });
@@ -198,6 +226,8 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
     ArrowLeft: onPrev,
     ArrowRight: onNext,
     " ": onNext,
+    ".": () => onNextUndecided?.(),
+    "b": () => setShowAfter((v) => !v),
     "1": () => mutate({ stars: 1 }),
     "2": () => mutate({ stars: 2 }),
     "3": () => mutate({ stars: 3 }),
@@ -208,7 +238,7 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
     "n": () => mutate({ selected: "no" }),
     "u": () => mutate({ selected: "undecided" }),
     "f": () => mutate({ favorite: !data?.decision?.favorite }),
-  }), [mutate, data, onClose, onPrev, onNext]));
+  }), [mutate, data, onClose, onPrev, onNext, onNextUndecided]));
 
   if (!data) return html`
     <div class="fixed inset-0 bg-black/80 flex items-center justify-center">
@@ -216,14 +246,29 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
     </div>`;
 
   const d = data.decision;
-  const exif = `${data.camera_body ?? ""} • ISO ${data.iso ?? "?"} • 1/${data.shutter ? Math.round(1 / data.shutter) : "?"}s • f/${data.aperture ?? "?"} • ${data.focal_length ?? "?"}mm`;
+  const enhanced = data.quality_report?.score_q_after != null;
+  const showingAfter = showAfter && !afterError && data.enhanced_url;
+  const imgSrc = showingAfter ? data.enhanced_url : data.preview_url;
+  const faces = data.faces ?? [];
+  const mp = data.width && data.height ? (data.width * data.height) / 1e6 : null;
+  const exifBits = [
+    data.camera_body,
+    data.lens,
+    `ISO ${data.iso ?? "?"}`,
+    `1/${data.shutter ? Math.round(1 / data.shutter) : "?"}s`,
+    `f/${data.aperture ?? "?"}`,
+    `${data.focal_length ?? "?"}mm`,
+    mp ? `${data.width}×${data.height} · ${mp.toFixed(0)}MP` : null,
+  ].filter(Boolean);
 
   return html`
     <div class="fixed inset-0 bg-black/95 flex flex-col" role="dialog" aria-modal="true">
       <div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 text-sm">
         <div class="flex items-center gap-3 min-w-0">
-          <button onClick=${onPrev} class="px-2 py-1 bg-zinc-800 rounded">←</button>
-          <button onClick=${onNext} class="px-2 py-1 bg-zinc-800 rounded">→</button>
+          <button onClick=${onPrev} class="px-2 py-1 bg-zinc-800 rounded" title="prev (←)">←</button>
+          <button onClick=${onNext} class="px-2 py-1 bg-zinc-800 rounded" title="next (→)">→</button>
+          <button onClick=${() => onNextUndecided?.()} class="px-2 py-1 bg-zinc-800 rounded text-xs"
+                  title="next undecided (.)">next undecided</button>
           <span class="font-mono text-zinc-200 truncate" title=${data.source_path ?? data.filename ?? data.hash}>
             ${data.filename ?? data.hash.slice(0, 10)}
           </span>
@@ -231,15 +276,42 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
             <span class="bg-zinc-700 text-zinc-100 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded">
               ${data.file_kind}
             </span>`}
-          <span class="font-mono text-zinc-500 text-xs">${data.hash.slice(0, 8)}</span>
-          <span class="text-zinc-500 truncate">${exif}</span>
+          <span class="text-zinc-500 truncate">${exifBits.join(" • ")}</span>
         </div>
-        <button onClick=${onClose} class="px-3 py-1 bg-zinc-800 rounded">close (esc)</button>
+        <div class="flex items-center gap-2">
+          <div class="flex gap-0.5 p-0.5 bg-zinc-900 border border-zinc-800 rounded text-xs">
+            <button onClick=${() => setShowAfter(false)}
+              class="px-2 py-0.5 rounded ${!showingAfter ? "bg-zinc-600 text-zinc-100" : "text-zinc-400"}">before</button>
+            <button onClick=${() => setShowAfter(true)}
+              class="px-2 py-0.5 rounded ${showingAfter ? "bg-zinc-600 text-zinc-100" : "text-zinc-400"}"
+              title=${enhanced ? "enhanced result (b)" : "enhanced JPEG (needs Export JPEG)"}>after</button>
+          </div>
+          ${faces.length > 0 && !showingAfter && html`
+            <button onClick=${() => setShowFaces((v) => !v)}
+              class="px-2 py-0.5 rounded text-xs ${showFaces ? "bg-emerald-800 text-emerald-100" : "bg-zinc-800 text-zinc-400"}">
+              faces (${faces.length})</button>`}
+          <button onClick=${onClose} class="px-3 py-1 bg-zinc-800 rounded">close (esc)</button>
+        </div>
       </div>
 
       <div class="flex-1 flex items-center justify-center overflow-hidden p-4">
-        <img src=${data.preview_url} alt=${data.hash}
-             class="max-h-full max-w-full object-contain" />
+        <div class="relative inline-block max-h-full max-w-full">
+          <img src=${imgSrc} alt=${data.hash}
+               class="block max-h-full max-w-full object-contain"
+               onLoad=${(e) => { if (!showingAfter) setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight }); }}
+               onError=${() => { if (showAfter) setAfterError(true); }} />
+          ${showFaces && !showingAfter && nat && faces.map((f, i) => html`
+            <div key=${i} class="absolute border-2 border-emerald-400/80 pointer-events-none"
+                 style=${{ left: `${(f.x / nat.w) * 100}%`, top: `${(f.y / nat.h) * 100}%`,
+                           width: `${(f.w / nat.w) * 100}%`, height: `${(f.h / nat.h) * 100}%` }}>
+              <span class="absolute -top-4 left-0 text-[10px] text-emerald-300 bg-black/70 px-1 rounded">
+                ${f.score != null ? f.score.toFixed(2) : ""}</span>
+            </div>`)}
+          ${showAfter && afterError && html`
+            <div class="absolute inset-x-0 bottom-0 bg-amber-950/80 text-amber-200 text-xs text-center py-1">
+              No enhanced output yet — run Submit &amp; continue (or Export JPEG).
+            </div>`}
+        </div>
       </div>
 
       <div class="px-4 py-3 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
@@ -248,7 +320,10 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
           <div>aesthetic: <span class="text-zinc-100">${data.aesthetic_score?.toFixed(2) ?? "—"}</span></div>
           <div>technical: <span class="text-zinc-100">${data.technical_score?.toFixed(2) ?? "—"}</span></div>
           <div class="text-zinc-500">musiq ${data.musiq_score?.toFixed(1) ?? "—"} • maniqa ${data.maniqa_score?.toFixed(2) ?? "—"}</div>
-          <div class="text-zinc-500">blur var ${data.blur_var?.toFixed(0) ?? "—"} • ${data.faces?.length ?? 0} face(s)</div>
+          <div class="text-zinc-500">blur var ${data.blur_var?.toFixed(0) ?? "—"} • ${faces.length} face(s)</div>
+          ${data.exposure_flag && data.exposure_flag !== "ok" && html`
+            <div class="mt-1"><span class="bg-amber-800 text-amber-100 text-[10px] px-1.5 py-0.5 rounded">
+              ${data.exposure_flag.replace(/_/g, " ")}</span></div>`}
         </div>
 
         ${data.quality_report ? html`<${EngineQualityPanel} qr=${data.quality_report} />` : html`
@@ -279,6 +354,10 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
             <button class="px-2 py-1 rounded ${d?.favorite ? "bg-pink-700" : "bg-zinc-800"}"
                     onClick=${() => mutate({ favorite: !d?.favorite })}>★ favorite <span class="kbd">f</span></button>
           </div>
+          <textarea rows="2" placeholder="note…" value=${noteText}
+            onInput=${(e) => setNoteText(e.target.value)}
+            onBlur=${() => { if ((data.decision?.note ?? "") !== noteText) mutate({ note: noteText }); }}
+            class="mt-2 w-full bg-zinc-800 rounded px-2 py-1 text-xs text-zinc-200"></textarea>
           <div class="mt-2 text-xs text-zinc-500">
             Yes → kept in <span class="font-mono">library/</span> + enhanced TIFF.
             No → enhanced TIFF only; original RAW deleted after enhance.
@@ -288,7 +367,8 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
         <div class="text-xs text-zinc-500">
           <div class="uppercase tracking-wider mb-1">shortcuts</div>
           <div><span class="kbd">1-5</span> stars · <span class="kbd">y/n/u</span> select · <span class="kbd">f</span> fav</div>
-          <div><span class="kbd">←/→</span> nav · <span class="kbd">space</span> next · <span class="kbd">esc</span> close</div>
+          <div><span class="kbd">←/→</span> nav · <span class="kbd">.</span> next undecided · <span class="kbd">b</span> before/after</div>
+          <div><span class="kbd">space</span> next · <span class="kbd">esc</span> close</div>
           <div class="mt-2">cluster: ${data.cluster_id ?? "—"} · recommended: ${data.is_recommended ? "yes" : "no"}</div>
           <div>captured ${data.captured_at ?? "—"}</div>
         </div>
@@ -296,9 +376,10 @@ function DetailModal({ hash, onClose, onPrev, onNext, onMutated }) {
     </div>`;
 }
 
-function Toolbar({ count, shown, pendingCount, sort, setSort, view, setView,
+function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setView,
                    onMarkAllNo, onSubmitAndContinue, busy }) {
   const truncated = shown != null && shown < count;
+  const filtered = total != null && total !== count;
   const tabBtn = (id, label) => html`
     <button onClick=${() => setView(id)}
       class="px-3 py-1 rounded text-sm ${view === id ? "bg-zinc-700 text-zinc-100" : "bg-zinc-900 text-zinc-400"}">
@@ -308,7 +389,7 @@ function Toolbar({ count, shown, pendingCount, sort, setSort, view, setView,
     <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-2 sticky top-0 bg-zinc-950/95 backdrop-blur z-20">
       <div class="flex items-baseline gap-4">
         <span class="text-sm text-zinc-400">
-          ${count} photo${count === 1 ? "" : "s"}${truncated ? ` (showing ${shown})` : ""}
+          ${count}${filtered ? ` of ${total}` : ""} photo${count === 1 ? "" : "s"}${truncated ? ` (showing ${shown})` : ""}
         </span>
         <span class="text-sm text-amber-400">${pendingCount} pending decision${pendingCount === 1 ? "" : "s"}</span>
       </div>
@@ -339,21 +420,40 @@ function Toolbar({ count, shown, pendingCount, sort, setSort, view, setView,
 export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
   const [sort, setSort] = useState("score");
   const [view, setView] = useState("all");
+  const [filter, setFilter] = useState({ ...EMPTY_FILTER });
   const { data: queueItems, refetch: refetchQueue } = useQuery(() => api.queue(sort), [sort]);
   const { data: clusters, refetch: refetchClusters } = useQuery(() => api.clusters(), []);
   const { data: pending, refetch: refetchPending } = useQuery(() => api.pending(), []);
   const [openHash, setOpenHash] = useState(null);
+  const [compareId, setCompareId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [view, sort]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [view, sort, filter]);
   const loadMore = useCallback(() => setVisibleCount((c) => c + PAGE_SIZE), []);
 
-  const items = useMemo(() => {
-    if (view === "clusters") return (clusters ?? []).flatMap((c) => c.photos);
+  const filteredClusters = useMemo(() => {
+    if (!clusters) return null;
+    return clusters
+      .map((c) => ({ ...c, photos: c.photos.filter((p) => matchesFilter(p, filter)) }))
+      .filter((c) => c.photos.length > 0);
+  }, [clusters, filter]);
+
+  const rawItems = useMemo(() => {
+    if (view === "clusters") return clusters ? clusters.flatMap((c) => c.photos) : null;
     return queueItems ?? null;
   }, [view, queueItems, clusters]);
+
+  const items = useMemo(() => {
+    if (view === "clusters") return filteredClusters ? filteredClusters.flatMap((c) => c.photos) : null;
+    return queueItems ? queueItems.filter((p) => matchesFilter(p, filter)) : null;
+  }, [view, queueItems, filteredClusters, filter]);
+
+  const compareCluster = useMemo(
+    () => (compareId != null && clusters ? clusters.find((c) => c.id === compareId) ?? null : null),
+    [compareId, clusters]
+  );
 
   const refreshAll = useCallback(() => {
     refetchQueue(); refetchClusters(); refetchPending();
@@ -373,6 +473,51 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     const i = openIndex <= 0 ? items.length - 1 : openIndex - 1;
     setOpenHash(items[i].hash);
   }, [items, openIndex]);
+  const nextUndecided = useCallback(() => {
+    if (!items || items.length === 0) return;
+    const start = openIndex < 0 ? -1 : openIndex;
+    for (let k = 1; k <= items.length; k++) {
+      const p = items[(start + k) % items.length];
+      const sel = p.decision?.selected;
+      if (!sel || sel === "undecided") { setOpenHash(p.hash); return; }
+    }
+    setStatus("No undecided photos left in the current view.");
+  }, [items, openIndex]);
+
+  const onClusterAction = useCallback(async (clusterId, mode) => {
+    setBusy(true);
+    try {
+      const res = await api.decideCluster(clusterId, mode);
+      setStatus(`Cluster #${clusterId}: staged ${res.staged} decision(s) (${mode.replace(/_/g, " ")}).`);
+      refreshAll();
+    } catch (e) {
+      setStatus(`Cluster action failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshAll]);
+
+  const onCompareDecide = useCallback(async (photoHash, selected) => {
+    await api.decide({ photo_hash: photoHash, selected });
+    refreshAll();
+  }, [refreshAll]);
+
+  const onKeepOnly = useCallback(async (keepHash) => {
+    if (!compareCluster) return;
+    setBusy(true);
+    try {
+      // Skip already-applied (submitted) photos, mirroring stage_cluster.
+      await Promise.all(compareCluster.photos
+        .filter((p) => !p.decision?.applied)
+        .map((p) => api.decide({ photo_hash: p.hash, selected: p.hash === keepHash ? "yes" : "no" })));
+      setStatus(`Kept ${keepHash.slice(0, 8)}; rejected the rest of the cluster.`);
+      refreshAll();
+    } catch (e) {
+      setStatus(`Keep-only failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [compareCluster, refreshAll]);
 
   const submitAndContinue = useCallback(() => {
     const n = pending?.length ?? 0;
@@ -402,33 +547,43 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     }
   }, [refreshAll]);
 
+  const emptyMsg = (rawItems && rawItems.length > 0)
+    ? "No photos match the current filter."
+    : "No photos yet. Run the Ingest stage first.";
+
   const body = (() => {
     if (view === "clusters") {
-      if (!clusters) return html`<div class="p-8 text-zinc-500">loading…</div>`;
-      return html`<${ClusterView} clusters=${clusters} onSelect=${setOpenHash} />`;
+      if (!filteredClusters) return html`<div class="p-8 text-zinc-500">loading…</div>`;
+      if (filteredClusters.length === 0) return html`<div class="p-8 text-zinc-500">${emptyMsg}</div>`;
+      return html`<${ClusterView} clusters=${filteredClusters} onSelect=${setOpenHash}
+                    onClusterAction=${onClusterAction} onCompare=${(c) => setCompareId(c.id)}
+                    busy=${busy || pipelineBusy} />`;
     }
     if (!items) return html`<div class="p-8 text-zinc-500">loading…</div>`;
-    if (items.length === 0) {
-      return html`<div class="p-8 text-zinc-500">No photos yet. Run the Ingest stage first.</div>`;
-    }
+    if (items.length === 0) return html`<div class="p-8 text-zinc-500">${emptyMsg}</div>`;
     return html`<${PagedGrid} items=${items} visible=${visibleCount}
                                onMore=${loadMore} onSelect=${setOpenHash} />`;
   })();
 
   return html`
     <${Fragment}>
-      <${Toolbar} count=${items?.length ?? 0}
+      <${Toolbar} count=${items?.length ?? 0} total=${rawItems?.length ?? null}
                   shown=${(view === "all" && items) ? Math.min(visibleCount, items.length) : null}
                   pendingCount=${pending?.length ?? 0}
                   sort=${sort} setSort=${setSort} view=${view} setView=${setView}
                   onMarkAllNo=${onMarkAllNo}
                   onSubmitAndContinue=${submitAndContinue}
                   busy=${busy || pipelineBusy} />
+      <${FilterBar} filter=${filter} setFilter=${setFilter} />
       ${status && html`<div class="px-4 py-1 text-xs bg-zinc-900 border-b border-zinc-800">${status}</div>`}
       ${body}
       ${openHash && html`<${DetailModal} hash=${openHash}
                           onClose=${() => setOpenHash(null)}
-                          onPrev=${prev} onNext=${next}
+                          onPrev=${prev} onNext=${next} onNextUndecided=${nextUndecided}
                           onMutated=${refreshAll} />`}
+      ${compareCluster && html`<${CompareModal} cluster=${compareCluster}
+                          onClose=${() => setCompareId(null)}
+                          onDecide=${onCompareDecide} onKeepOnly=${onKeepOnly}
+                          busy=${busy} />`}
     </${Fragment}>`;
 }
