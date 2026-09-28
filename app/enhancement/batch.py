@@ -19,6 +19,7 @@ from rich.progress import Progress
 from app.arrays import Array
 from app.config import settings
 from app.db import session_scope
+from app.enhancement.classical.lens_correct import correct_lens
 from app.enhancement.denoise import ScunetModel
 from app.enhancement.develop_full import darktable_cli, read_icc_profile
 from app.enhancement.downsample import resize_float
@@ -47,10 +48,11 @@ from app.enhancement.enhance_job import (
 from app.enhancement.face_restore import CodeFormerModel
 from app.enhancement.geometry import scale_boxes
 from app.enhancement.pack_tiff import copy_metadata, write_tiff16
-from app.enhancement.sidecar import BASELINE_XMP, resolve_xmp
+from app.enhancement.sidecar import resolve_xmp
 from app.enhancement.upsample_final import parse_target
 from app.enhancement.upscale import RealEsrganModel
 from app.enhancement.verify import Verdict, safe_plan, verify
+from app.ingest.exif import ExifData, ExifReader
 from app.paths import relative_subpath
 
 log = logging.getLogger(__name__)
@@ -86,6 +88,7 @@ class WorkItem:
     ai_scaled: bool = False
     failed: str | None = None
     out: Path | None = None
+    exif: ExifData | None = None
 
 
 def _face_infos(img: Array, boxes: list[FaceBox]) -> list[FaceInfo]:
@@ -140,12 +143,7 @@ def persist_all(item: WorkItem, verdict: Verdict | None = None) -> None:
 
 def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     src = Path(item.photo.source_path)
-    xmp = resolve_xmp(
-        src,
-        photos_root=settings.photos,
-        xmp_root=settings.xmp,
-        baseline=BASELINE_XMP if settings.darktable_baseline else None,
-    )
+    xmp = resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp)
     dev = develop(src, xmp)
     try:
         item.icc = read_icc_profile(dev)
@@ -157,6 +155,13 @@ def _phase1(item: WorkItem, develop: Callable[..., Path]) -> None:
     finally:
         with contextlib.suppress(OSError):
             dev.unlink()
+    # Distortion + CA correction per-frame from EXIF, before measuring/planning so
+    # every downstream step sees the geometrically-correct frame. No-op for lenses
+    # lensfun cannot resolve. Shape is preserved, so native_size stays valid.
+    with ExifReader() as ex:
+        exif = ex.read(src)
+    item.exif = exif
+    img = correct_lens(img, exif, enabled=settings.enhance_lens_correction)
     h, w = img.shape[:2]
     item.native_size = (w, h)
     size = preview_size(Path(item.photo.preview_path) if item.photo.preview_path else None)
@@ -265,20 +270,14 @@ def _phase3(item: WorkItem, develop: Callable[..., Path]) -> None:
             "%s degraded (%s); retrying with the safe plan", src.name, ",".join(verdict.reasons)
         )
         # The safe plan has no AI steps, so it can run from the original development again.
-        dev = develop(
-            src,
-            resolve_xmp(
-                src,
-                photos_root=settings.photos,
-                xmp_root=settings.xmp,
-                baseline=BASELINE_XMP if settings.darktable_baseline else None,
-            ),
-        )
+        dev = develop(src, resolve_xmp(src, photos_root=settings.photos, xmp_root=settings.xmp))
         try:
             base = _load_linear_float(dev)
         finally:
             with contextlib.suppress(OSError):
                 dev.unlink()
+        if item.exif is not None:
+            base = correct_lens(base, item.exif, enabled=settings.enhance_lens_correction)
         retry = safe_plan(plan)
         retry_img = run_plan(base, retry, native_size=item.native_size)
         retry_after = score_report(measure_all(retry_img, face_boxes=item.face_boxes or None))

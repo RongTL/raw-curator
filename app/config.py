@@ -74,8 +74,8 @@ class Settings(BaseSettings):
 
     # darktable pixel workflow for the develop step; filmic is darktable 4.6's own default look.
     darktable_workflow: str = "scene-referred (sigmoid)"
-    # develop with the shipped baseline sidecar when a photo has no user sidecar; false = defaults.
-    darktable_baseline: bool = True
+    # per-frame lens distortion + CA correction via lensfun (from EXIF); false = skip it.
+    enhance_lens_correction: bool = True
 
     @property
     def db_path(self) -> Path:

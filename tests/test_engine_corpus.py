@@ -65,14 +65,21 @@ def test_plan_matches_expectation(stem: str, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("stem", ["IMG_0098", "IMG_1124", "IMG_1177"])
-def test_baseline_develops_every_kind_of_frame(stem: str, tmp_path: Path) -> None:
-    from app.enhancement.sidecar import BASELINE_XMP
+def test_lens_correction_applies_to_corpus_frame(stem: str, tmp_path: Path) -> None:
+    pytest.importorskip("lensfunpy")
+    from app.enhancement.classical.lens_correct import correct_lens
+    from app.ingest.exif import ExifReader
 
     raw = CORPUS / f"{stem}.CR3"
     if not raw.exists():
         pytest.skip(f"{raw} not present")
-    out = darktable_cli(raw, BASELINE_XMP, out_path=tmp_path / "b.tif")
-    arr = tifffile.imread(str(out))
-    assert arr.dtype == np.uint16
-    assert arr.shape[2] == 3
-    assert max(arr.shape[:2]) >= 5900
+    img = _develop_linear(raw, tmp_path)
+    with ExifReader() as ex:
+        exif = ex.read(raw)
+    out = correct_lens(img, exif, enabled=True)
+    # The whole corpus is the RF 24/1.8 Macro, which our shipped XML resolves, so
+    # the geometry/CA remap must fire and preserve shape/dtype/range.
+    assert out.shape == img.shape
+    assert out.dtype == np.float32
+    assert float(out.min()) >= 0.0 and float(out.max()) <= 1.0
+    assert not np.array_equal(out, img)
