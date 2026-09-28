@@ -1,11 +1,19 @@
 # Extra lensfun calibration data
 
-The image installs `liblensfun-data-v1` **0.3.4**, whose bundled database
-(`/usr/share/lensfun/version_1/`) predates some recent lenses. The `*.xml` files
-here fill those gaps; the `Containerfile` copies them into
-`/usr/share/lensfun/version_1/` so **both** the darktable GUI and the
-`darktable-cli` develop step (`app/enhancement/develop_full.py`) resolve them.
-lensfun loads every `*.xml` in that directory, so no index needs updating.
+lensfun's database predates some recent lenses (the image installs
+`liblensfun-data-v1` **0.3.4**, and the `lensfunpy` wheel bundles its own copy of
+the same-era data). The `*.xml` files here fill those gaps. Two consumers read them:
+
+- **The engine's per-frame lens correction**
+  (`app/enhancement/classical/lens_correct.py`) loads them directly with
+  `lensfunpy.Database(paths=[…this dir…])`, on top of the wheel's bundled data.
+  This is what actually corrects distortion + chromatic aberration during
+  `make enhance`.
+- **The darktable GUI / `darktable-cli`** resolve them from
+  `/usr/share/lensfun/version_1/`, where the `Containerfile` copies every `*.xml`,
+  so a user hand-authoring an `.xmp` sidecar sees the same lenses.
+
+lensfun loads every `*.xml` in a directory, so no index needs updating.
 
 ## Files
 
