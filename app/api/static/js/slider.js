@@ -1,12 +1,21 @@
 // Before/after wipe comparison. Two stacked <img>; the "after" is clipped by a
 // draggable handle. Pure CSS clip-path, pointer-driven; no external deps.
-import { html, useRef, useState } from "./ui.js";
+import { html, useEffect, useRef, useState } from "./ui.js";
 
 export function BeforeAfterSlider({ beforeSrc, afterSrc, fallbackSrc, dw, dh, onNatSize }) {
   const [pos, setPos] = useState(50);        // handle position, % from left
   const [afterOk, setAfterOk] = useState(true);
   const [beforeSrcState, setBeforeSrcState] = useState(beforeSrc);
   const box = useRef(null);
+
+  // The before-src and after-visibility live in state (so an onError can swap in
+  // the fallback / hide a missing after), but state seeded from props does NOT
+  // update when the props change on photo navigation. Re-sync on every src change
+  // so a new photo shows its own before/after, not the previous one's.
+  useEffect(() => {
+    setBeforeSrcState(beforeSrc);
+    setAfterOk(true);
+  }, [beforeSrc, afterSrc]);
 
   const onMove = (clientX) => {
     const el = box.current;
@@ -34,7 +43,7 @@ export function BeforeAfterSlider({ beforeSrc, afterSrc, fallbackSrc, dw, dh, on
       ${afterOk && afterSrc && html`
         <img src=${afterSrc} alt="after"
              class="absolute inset-0 w-full h-full object-contain pointer-events-none"
-             style=${{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
+             style=${{ clipPath: `inset(0 0 0 ${pos}%)` }}
              onError=${() => setAfterOk(false)} />`}
       ${afterOk && afterSrc && html`
         <div class="absolute inset-y-0 w-0.5 bg-white/80 pointer-events-none" style=${{ left: `${pos}%` }}>
