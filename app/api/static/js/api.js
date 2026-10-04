@@ -17,7 +17,7 @@ const post = (path, body) => j(path, {
 
 export const api = {
   // review
-  queue: (sort = "score") => j(`/api/queue/?sort=${sort}`),
+  queue: (sort = "captured") => j(`/api/queue/?sort=${sort}`),
   clusters: () => j(`/api/cluster/`),
   photo: (hash) => j(`/api/photo/${hash}`),
   decide: (body) => post(`/api/decide/`, body),

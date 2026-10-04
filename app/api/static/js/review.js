@@ -234,7 +234,10 @@ function EngineQualityPanel({ qr }) {
     </div>`;
 }
 
-function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated }) {
+// `position`/`total` locate this photo in the list it was opened from (1-based,
+// in the current sort); `filtered` marks that list as a filter subset of the view.
+function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated,
+                       position = null, total = 0, filtered = false }) {
   const { data, refetch } = useQuery(() => api.photo(hash), [hash]);
   const [viewMode, setViewMode] = useState("slider"); // "slider" | "before" | "after"
   const [showFaces, setShowFaces] = useState(false);
@@ -344,6 +347,13 @@ function DetailModal({ hash, onClose, onPrev, onNext, onNextUndecided, onMutated
           <button onClick=${onNext} class="px-2 py-1 bg-zinc-800 rounded" title="next (→)">→</button>
           <button onClick=${() => onNextUndecided?.()} class="px-2 py-1 bg-zinc-800 rounded text-xs"
                   title="next undecided (.)">next undecided</button>
+          ${position != null && total > 0 && html`
+            <span class="font-mono text-xs text-zinc-400 whitespace-nowrap"
+                  title=${filtered
+                    ? "position in the filtered list this photo was opened from"
+                    : "position in the current sort order"}>
+              ${position} / ${total}${filtered ? " · filtered" : ""}
+            </span>`}
           <span class="font-mono text-zinc-200 truncate" title=${data.source_path ?? data.filename ?? data.hash}>
             ${data.filename ?? data.hash.slice(0, 10)}
           </span>
@@ -508,8 +518,9 @@ function Toolbar({ count, total, shown, pendingCount, sort, setSort, view, setVi
           <label class="text-xs text-zinc-500">sort</label>
           <select value=${sort} onChange=${(e) => setSort(e.target.value)}
                   class="bg-zinc-900 border border-zinc-800 text-sm rounded px-2 py-1">
+            <option value="captured">date taken</option>
+            <option value="filename">filename</option>
             <option value="score">score (technical)</option>
-            <option value="captured">captured</option>
           </select>`}
         <div class="flex gap-1">
           ${bulkBtn({ export_choice: "enhanced" }, "use enhanced for all", "bg-emerald-800 hover:bg-emerald-700")}
@@ -553,7 +564,10 @@ function bulkConfirmText(body) {
 }
 
 export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
-  const [sort, setSort] = useState("score");
+  const [sort, setSort] = useState(() => {
+    const m = /sort=(captured|filename|score)/.exec(location.hash);
+    return m ? m[1] : "captured";
+  });
   const [view, setView] = useState(() => {
     const m = /view=(all|clusters)/.exec(location.hash);
     return m ? m[1] : "all";
@@ -573,13 +587,15 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [view, sort, filter]);
   const loadMore = useCallback(() => setVisibleCount((c) => c + PAGE_SIZE), []);
 
-  // Keep the current sub-view in the URL so a reload doesn't drop you back on
-  // the Ingest log (the pipeline panel remembers itself in app.js).
+  // Keep the current sub-view and sort in the URL so a reload doesn't drop you
+  // back on the Ingest log or lose your ordering (the pipeline panel remembers
+  // itself in app.js).
   useEffect(() => {
     const params = new URLSearchParams(location.hash.slice(1));
     params.set("view", view);
+    params.set("sort", sort);
     history.replaceState(null, "", `#${params.toString()}`);
-  }, [view]);
+  }, [view, sort]);
 
   const filteredClusters = useMemo(() => {
     if (!clusters) return null;
@@ -657,6 +673,10 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
     () => (viewerHashes ? viewerHashes.indexOf(openHash) : -1),
     [viewerHashes, openHash]
   );
+  // The viewer walks a snapshot of the visible list; when that snapshot is
+  // smaller than the view's universe a filter was active, so the counter says so.
+  const viewerFiltered = viewerHashes != null && rawItems != null
+    && viewerHashes.length < rawItems.length;
   const next = useCallback(() => {
     if (!viewerHashes || viewerHashes.length === 0) return;
     const i = openIndex < 0 ? 0 : (openIndex + 1) % viewerHashes.length;
@@ -788,7 +808,10 @@ export function ReviewPanel({ pipelineBusy, onSubmitAndContinue }) {
       ${openHash && html`<${DetailModal} hash=${openHash}
                           onClose=${closeViewer}
                           onPrev=${prev} onNext=${next} onNextUndecided=${nextUndecided}
-                          onMutated=${refreshAll} />`}
+                          onMutated=${refreshAll}
+                          position=${openIndex >= 0 ? openIndex + 1 : null}
+                          total=${viewerHashes?.length ?? 0}
+                          filtered=${viewerFiltered} />`}
       ${compareCluster && html`<${CompareModal} cluster=${compareCluster}
                           onClose=${() => setCompareId(null)}
                           onDecide=${onCompareDecide} onKeepOnly=${onKeepOnly}
