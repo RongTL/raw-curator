@@ -331,8 +331,14 @@ Keyboard shortcuts inside the modal:
 | `space`   | Next photo (one-handed reviewing)            |
 | `esc`     | Close detail view                            |
 
-Sort: `score (technical)` or `captured`. Export happens via the green
-**Export selected** button in the review toolbar (no keyboard shortcut).
+Sort (All view): `date taken` (default — a timeline, oldest first, undated
+photos last), `filename` (full path, i.e. the order ingest found the files;
+subfolders stay grouped) or `score (technical)`. The choice is kept in the
+URL, so a reload keeps your ordering. In the detail view a `20 / 500`
+counter next to the arrows shows where this photo sits in the list you
+opened it from; with a filter on it reads `20 / 37 · filtered`. Export
+happens via the green **Export selected** button in the review toolbar (no
+keyboard shortcut).
 
 #### Staging vs exporting
 
