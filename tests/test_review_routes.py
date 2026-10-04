@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -16,11 +16,12 @@ from app.api.routes import cluster, decide, photo, queue
 from app.db import make_engine
 from app.models import Base, Cluster, ClusterMember, Decision, Face, Photo
 
-Scope = Callable[[], object]
+Scope = Callable[[], AbstractContextManager[Session]]
 
 
 @pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Scope]:
+    """A seeded temp DB; yields the session scope so tests can add rows."""
     engine = make_engine(f"sqlite:///{tmp_path / 'review.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, future=True)
@@ -44,8 +45,19 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
         c = Cluster(kind="burst", size=2)
         sess.add(c)
         sess.flush()
+        # Inserted in reverse so the table's natural order (ccc, bbb, aaa) matches
+        # none of the sort options; a sort that silently falls through shows up.
         sess.add_all(
             [
+                Photo(hash="ccc", source_path="/x/C.jpg", file_kind="jpeg"),
+                Photo(
+                    hash="bbb",
+                    source_path="/x/B.CR3",
+                    file_kind="raw",
+                    captured_at=datetime(2026, 1, 1, 9),
+                    technical_score=0.5,
+                    cluster_id=c.id,
+                ),
                 Photo(
                     hash="aaa",
                     source_path="/x/A.CR3",
@@ -56,15 +68,6 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
                     cluster_id=c.id,
                     is_recommended=1,
                 ),
-                Photo(
-                    hash="bbb",
-                    source_path="/x/B.CR3",
-                    file_kind="raw",
-                    captured_at=datetime(2026, 1, 1, 9),
-                    technical_score=0.5,
-                    cluster_id=c.id,
-                ),
-                Photo(hash="ccc", source_path="/x/C.jpg", file_kind="jpeg"),
             ]
         )
         sess.flush()  # FK targets first: SQLite enforces foreign_keys=ON
@@ -79,20 +82,35 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
             ]
         )
 
+    try:
+        yield scope
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def client(db: Scope) -> TestClient:
     app = FastAPI()
     app.include_router(queue.router, prefix="/api/queue")
     app.include_router(photo.router, prefix="/api/photo")
     app.include_router(cluster.router, prefix="/api/cluster")
     app.include_router(decide.router, prefix="/api/decide")
-    try:
-        yield TestClient(app)
-    finally:
-        engine.dispose()
+    return TestClient(app)
+
+
+def _hashes(client: TestClient, query: str = "") -> list[str]:
+    r = client.get(f"/api/queue/{query}")
+    assert r.status_code == 200, r.text
+    return [i["hash"] for i in r.json()]
+
+
+def test_queue_default_sort_is_capture_time(client: TestClient) -> None:
+    assert _hashes(client) == _hashes(client, "?sort=captured") == ["bbb", "aaa", "ccc"]
 
 
 def test_queue_sorted_by_technical_score_with_decisions(client: TestClient) -> None:
-    items = client.get("/api/queue/").json()
-    assert [i["hash"] for i in items] == ["aaa", "bbb", "ccc"]
+    items = client.get("/api/queue/?sort=score").json()
+    assert [i["hash"] for i in items] == ["aaa", "bbb", "ccc"]  # None sorts last
     assert items[0]["decision"] == {
         "export_choice": "enhanced",
         "keep_raw": True,
@@ -105,9 +123,34 @@ def test_queue_sorted_by_technical_score_with_decisions(client: TestClient) -> N
     assert items[0]["filename"] == "A.CR3"
 
 
-def test_queue_sorted_by_capture_time(client: TestClient) -> None:
-    items = client.get("/api/queue/?sort=captured").json()
-    assert [i["hash"] for i in items] == ["ccc", "bbb", "aaa"]  # None sorts first
+def test_queue_sorted_by_capture_time_puts_undated_last(client: TestClient) -> None:
+    assert _hashes(client, "?sort=captured") == ["bbb", "aaa", "ccc"]
+
+
+def test_queue_capture_time_ties_break_on_source_path(client: TestClient, db: Scope) -> None:
+    # Same second as "aaa" but a path that sorts before it: bursts keep shooting order.
+    with db() as sess:
+        sess.add(
+            Photo(
+                hash="ddd",
+                source_path="/x/0.CR3",
+                file_kind="raw",
+                captured_at=datetime(2026, 1, 1, 10),
+            )
+        )
+    assert _hashes(client, "?sort=captured") == ["bbb", "ddd", "aaa", "ccc"]
+
+
+def test_queue_sorted_by_filename_uses_full_source_path(client: TestClient, db: Scope) -> None:
+    # "0.CR3" would sort first by bare filename; by full path its subfolder keeps it
+    # grouped after the top-level files, matching the ingest walk order.
+    with db() as sess:
+        sess.add(Photo(hash="ddd", source_path="/x/sub/0.CR3", file_kind="raw"))
+    assert _hashes(client, "?sort=filename") == ["aaa", "bbb", "ccc", "ddd"]
+
+
+def test_queue_rejects_unknown_sort(client: TestClient) -> None:
+    assert client.get("/api/queue/?sort=bogus").status_code == 400
 
 
 def test_clusters_list_members_by_rank_plus_unclustered_bucket(client: TestClient) -> None:
